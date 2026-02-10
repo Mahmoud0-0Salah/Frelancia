@@ -25,7 +25,7 @@ const DEFAULT_PROMPTS = [
 الوسوم: {tags}
 
 معلومات صاحب العمل:
-الاسم: {client_name}
+الاسم: {client_name} ({client_type})
 
 وصف المشروع:
 {description}

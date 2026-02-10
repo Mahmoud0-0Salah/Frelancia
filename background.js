@@ -9,6 +9,30 @@ const MOSTAQL_URLS = {
   all: 'https://mostaql.com/projects?sort=latest'
 };
 
+const DEFAULT_PROMPTS = [
+  {
+    id: 'default_proposal',
+    title: 'كتابة عرض مشروع',
+    content: `أريد مساعدتك في كتابة عرض لهذا المشروع على منصة مستقل.
+    
+عنوان المشروع: {title}
+    
+الميزانية: {budget}
+مدة التنفيذ: {duration}
+تاريخ النشر: {publish_date}
+صاحب العمل: {client_name}
+الوسوم: {tags}
+حالة المشروع: {project_status}
+
+تفاصيل المشروع:
+{description}
+    
+رابط المشروع: {url}
+    
+يرجى كتابة عرض احترافي ومقنع يوضح خبرتي في هذا المجال ويشرح كيف يمكنني تنفيذ المطلوب بدقة.`
+  }
+];
+
 // Initialize extension on install
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extension installed');
@@ -28,7 +52,8 @@ chrome.runtime.onInstalled.addListener(() => {
       todayCount: 0,
       todayDate: new Date().toDateString()
     },
-    trackedProjects: {}
+    trackedProjects: {},
+    prompts: DEFAULT_PROMPTS // Seed with defaults on install
   });
 
   // Create alarm for checking jobs
@@ -457,6 +482,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: false, error: e.message });
       });
     return true;
+  }
+
+  // Get Default Prompts (for reset/fallback)
+  if (message.action === 'getDefaultPrompts') {
+    sendResponse({ success: true, prompts: DEFAULT_PROMPTS });
+    return false; // Sync response
   }
 });
 

@@ -302,37 +302,47 @@ function handleChatGptClick(promptId) {
 
         if (selectedPrompt) {
             templateContent = selectedPrompt.content;
+            processTemplate(templateContent);
         } else {
-            // Fallback
-            const defaults = getDefaultPrompts();
-            templateContent = defaults[0].content;
+            // Fallback: Fetch defaults from background
+            chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+                const defaults = (response && response.prompts) ? response.prompts : [];
+                if (defaults.length > 0) {
+                    processTemplate(defaults[0].content);
+                } else {
+                    alert('خطأ: لم يتم العثور على القوالب الافتراضية.');
+                }
+            });
+            return;
         }
 
-        // Replace variables
-        let prompt = templateContent
-            .replace(/{title}/g, projectData.title)
-            .replace(/{url}/g, projectData.url)
-            .replace(/{description}/g, description)
-            .replace(/{tags}/g, projectData.tags)
-            .replace(/{client_name}/g, projectData.clientName)
-            .replace(/{budget}/g, projectData.budget)
-            .replace(/{duration}/g, projectData.duration)
-            .replace(/{publish_date}/g, projectData.publishDate)
-            .replace(/{project_status}/g, projectData.status)
-            .replace(/{project_id}/g, projectData.id)
-            .replace(/{category}/g, projectData.category)
-            .replace(/{hiring_rate}/g, projectData.hiringRate)
-            .replace(/{open_projects}/g, projectData.openProjects)
-            .replace(/{underway_projects}/g, projectData.underwayProjects)
-            .replace(/{client_joined}/g, projectData.clientJoined)
-            .replace(/{client_type}/g, projectData.clientType);
+        function processTemplate(content) {
 
-        // Save prompt to storage for the ChatGPT content script to pick up
-        chrome.storage.local.set({ 'pendingChatGptPrompt': prompt }, () => {
-            // Open ChatGPT in a new tab
-            window.open('https://chatgpt.com/', '_blank');
+            // Replace variables
+            let prompt = templateContent
+                .replace(/{title}/g, projectData.title)
+                .replace(/{url}/g, projectData.url)
+                .replace(/{description}/g, description)
+                .replace(/{tags}/g, projectData.tags)
+                .replace(/{client_name}/g, projectData.clientName)
+                .replace(/{budget}/g, projectData.budget)
+                .replace(/{duration}/g, projectData.duration)
+                .replace(/{publish_date}/g, projectData.publishDate)
+                .replace(/{project_status}/g, projectData.status)
+                .replace(/{project_id}/g, projectData.id)
+                .replace(/{category}/g, projectData.category)
+                .replace(/{hiring_rate}/g, projectData.hiringRate)
+                .replace(/{open_projects}/g, projectData.openProjects)
+                .replace(/{underway_projects}/g, projectData.underwayProjects)
+                .replace(/{client_joined}/g, projectData.clientJoined)
+                .replace(/{client_type}/g, projectData.clientType);
+
+            // Save prompt to storage for the ChatGPT content script to pick up
+            chrome.storage.local.set({ 'pendingChatGptPrompt': prompt }, () => {
+                // Open ChatGPT in a new tab
+                window.open('https://chatgpt.com/', '_blank');
+            });
         });
-    });
 }
 
 function getProjectId() {
@@ -453,50 +463,23 @@ function getProjectDescription() {
 
 // --- Prompt Management ---
 
-function getDefaultPrompts() {
-    return [
-        {
-            id: 'default_proposal',
-            title: 'كتابة عرض مشروع',
-            content: `أريد مساعدتك في كتابة عرض لهذا المشروع على منصة مستقل.
-    
-عنوان المشروع: {title}
-    
-الميزانية: {budget}
-مدة التنفيذ: {duration}
-تاريخ النشر: {publish_date}
-صاحب العمل: {client_name}
-الوسوم: {tags}
-حالة المشروع: {project_status}
-
-تفاصيل المشروع:
-{description}
-    
-رابط المشروع: {url}
-    
-يرجى كتابة عرض احترافي ومقنع يوضح خبرتي في هذا المجال ويشرح كيف يمكنني تنفيذ المطلوب بدقة.`
-        }
-    ];
-}
-
 function loadPrompts(callback) {
     chrome.storage.local.get(['prompts'], (data) => {
         const storedPrompts = data.prompts || [];
-        const defaultPrompts = getDefaultPrompts();
 
-        // Merge strategy: Start with defaults, override/add with stored
-        let merged = [...defaultPrompts];
+        if (storedPrompts.length > 0) {
+            callback(storedPrompts);
+        } else {
+            // If empty, fetch defaults from background (Source of Truth)
+            chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+                const defaults = (response && response.prompts) ? response.prompts : [];
 
-        storedPrompts.forEach(p => {
-            const index = merged.findIndex(m => m.id === p.id);
-            if (index !== -1) {
-                merged[index] = p; // Override
-            } else {
-                merged.push(p); // Add new
-            }
-        });
-
-        callback(merged);
+                // Save them to storage so we don't ask again
+                chrome.storage.local.set({ prompts: defaults }, () => {
+                    callback(defaults);
+                });
+            });
+        }
     });
 }
 

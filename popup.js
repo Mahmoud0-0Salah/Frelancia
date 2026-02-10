@@ -378,24 +378,9 @@ function debugConnection() {
 // Prompt Management
 // ==========================================
 
-function getDefaultPrompts() {
-  return [
-    {
-      id: 'default_proposal',
-      title: 'كتابة عرض مشروع',
-      content: `أريد مساعدتك في كتابة عرض لهذا المشروع على منصة مستقل.
 
-عنوان المشروع: {title}
+// Replaced by background service
 
-تفاصيل المشروع:
-{description}
-
-رابط المشروع: {url}
-
-يرجى كتابة عرض احترافي ومقنع يوضح خبرتي في هذا المجال ويشرح كيف يمكنني تنفيذ المطلوب بدقة.`
-    }
-  ];
-}
 
 function loadPrompts() {
   const container = document.getElementById('promptsList');
@@ -404,25 +389,36 @@ function loadPrompts() {
   chrome.storage.local.get(['prompts'], (data) => {
     let prompts = data.prompts || [];
 
-    // If empty, show defaults but DO NOT save them yet (unless user edits/saves).
-    // Or we can save them immediately? 
-    // Better to just display them.
+    // If empty, fetch from background (Source of Truth)
     if (prompts.length === 0) {
-      prompts = getDefaultPrompts();
-      // Optional: Save defaults to storage so they persist and can be edited/deleted
-      // chrome.storage.local.set({ prompts });
-    }
-
-    if (prompts.length === 0) { // Should not happen with defaults
-      container.innerHTML = '<p class="empty-msg">لا توجد أوامر محفوظة</p>';
+      chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+        prompts = (response && response.prompts) ? response.prompts : [];
+        // Save to local storage for next time
+        chrome.storage.local.set({ prompts }, () => {
+          renderPrompts(prompts);
+        });
+      });
       return;
     }
 
-    container.innerHTML = '';
-    prompts.forEach((prompt, index) => {
-      const item = document.createElement('div');
-      item.className = 'prompt-item';
-      item.innerHTML = `
+    renderPrompts(prompts);
+
+  });
+}
+
+function renderPrompts(prompts) {
+  const container = document.getElementById('promptsList');
+
+  if (prompts.length === 0) { // Should not happen with defaults
+    container.innerHTML = '<p class="empty-msg">لا توجد أوامر محفوظة</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  prompts.forEach((prompt, index) => {
+    const item = document.createElement('div');
+    item.className = 'prompt-item';
+    item.innerHTML = `
         <div class="prompt-header">
           <span class="prompt-title">${prompt.title}</span>
         </div>
@@ -432,27 +428,27 @@ function loadPrompts() {
           <button class="btn-sm btn-delete" data-index="${index}">حذف</button>
         </div>
       `;
-      container.appendChild(item);
-    });
+    container.appendChild(item);
+  });
 
-    // Event listeners for edit/delete buttons
-    container.querySelectorAll('.btn-edit').forEach(btn => {
-      btn.addEventListener('click', () => {
-        // Fetch fresh data in case it changed
-        chrome.storage.local.get(['prompts'], (d) => {
-          let currentPrompts = d.prompts || [];
-          if (currentPrompts.length === 0) currentPrompts = getDefaultPrompts();
+  // Event listeners for edit/delete buttons
+  container.querySelectorAll('.btn-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Fetch fresh data in case it changed
+      chrome.storage.local.get(['prompts'], (d) => {
+        let currentPrompts = d.prompts || [];
+        if (currentPrompts.length === 0) currentPrompts = getDefaultPrompts();
 
-          const p = currentPrompts[btn.dataset.index];
-          if (p) openPromptForm(p, btn.dataset.index);
-        });
+        const p = currentPrompts[btn.dataset.index];
+        if (p) openPromptForm(p, btn.dataset.index);
       });
     });
-
-    container.querySelectorAll('.btn-delete').forEach(btn => {
-      btn.addEventListener('click', () => deletePrompt(btn.dataset.index));
-    });
   });
+
+  container.querySelectorAll('.btn-delete').forEach(btn => {
+    btn.addEventListener('click', () => deletePrompt(btn.dataset.index));
+  });
+});
 }
 
 function openPromptForm(prompt = null, index = -1) {
@@ -500,61 +496,89 @@ function savePrompt() {
       // If user was editing a default, index might point to 0. 
       // But prompts is empty. So prompts[0] is undefined.
       // We should seed defaults if we are editing a default.
-      const defaults = getDefaultPrompts();
-      if (index >= 0 && index < defaults.length) {
-        // We were likely editing a default.
-        // Let's adopt the defaults into storage.
-        prompts = defaults;
-      }
-    }
 
-    // Safety check again
-    if (index >= 0 && index < prompts.length) {
-      // Edit existing
-      prompts[index] = { ...prompts[index], title, content };
-    } else {
-      // Add new
-      prompts.push({
-        id: crypto.randomUUID(),
-        title,
-        content,
-        createdAt: new Date().toISOString()
+      // Async fetch defaults then retry
+      chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+        const defaults = (response && response.prompts) ? response.prompts : [];
+        if (index >= 0 && index < defaults.length) {
+          prompts = defaults;
+          proceedSave(prompts, index, title, content);
+        } else {
+          // Just add as new
+          proceedSave([], -1, title, content);
+        }
       });
+      return;
     }
 
-    chrome.storage.local.set({ prompts }, () => {
-      closePromptForm();
-      loadPrompts();
-    });
+    proceedSave(prompts, index, title, content);
   });
 }
 
-function deletePrompt(index) {
-  if (confirm('هل أنت متأكد من حذف هذا الأمر؟')) {
+function proceedSave(prompts, index, title, content) {
+
+  // Safety check again
+  if (index >= 0 && index < prompts.length) {
+    // Edit existing
+    prompts[index] = { ...prompts[index], title, content };
+  } else {
+    // Add new
+    prompts.push({
+      id: crypto.randomUUID(),
+      title,
+      content,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  chrome.storage.local.set({ prompts }, () => {
+    closePromptForm();
+    loadPrompts();
+  });
+
+  function deletePrompt(index) {
+    if (confirm('هل أنت متأكد من حذف هذا الأمر؟')) {
+      chrome.storage.local.get(['prompts'], (data) => {
+        let prompts = data.prompts || [];
+
+        // If deleting a default that wasn't saved yet
+        if (prompts.length === 0) {
+          chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+            prompts = (response && response.prompts) ? response.prompts : [];
+            if (index >= 0 && index < prompts.length) {
+              prompts.splice(index, 1);
+              chrome.storage.local.set({ prompts }, loadPrompts);
+            }
+          });
+          return;
+        }
+
+        if (index >= 0 && index < prompts.length) {
+          prompts.splice(index, 1);
+          chrome.storage.local.set({ prompts }, loadPrompts);
+        }
+      });
+    }
+  }
+
+  function exportPrompts() {
     chrome.storage.local.get(['prompts'], (data) => {
       let prompts = data.prompts || [];
 
-      // If deleting a default that wasn't saved yet
+      // If empty storage, export defaults from background
       if (prompts.length === 0) {
-        prompts = getDefaultPrompts();
+        chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+          const defaults = (response && response.prompts) ? response.prompts : [];
+          downloadPrompts(defaults);
+        });
+        return;
       }
 
-      if (index >= 0 && index < prompts.length) {
-        prompts.splice(index, 1);
-        chrome.storage.local.set({ prompts }, loadPrompts);
-      }
+      downloadPrompts(prompts);
     });
   }
-}
 
-function exportPrompts() {
-  chrome.storage.local.get(['prompts'], (data) => {
-    let prompts = data.prompts || [];
-
-    // If empty storage, export defaults
-    if (prompts.length === 0) {
-      prompts = getDefaultPrompts();
-    }
+  function downloadPrompts(prompts) {
 
     const blob = new Blob([JSON.stringify(prompts, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

@@ -308,7 +308,20 @@ function handleChatGptClick(promptId) {
         let prompt = templateContent
             .replace(/{title}/g, projectData.title)
             .replace(/{url}/g, projectData.url)
-            .replace(/{description}/g, description);
+            .replace(/{description}/g, description)
+            .replace(/{tags}/g, projectData.tags)
+            .replace(/{client_name}/g, projectData.clientName)
+            .replace(/{budget}/g, projectData.budget)
+            .replace(/{duration}/g, projectData.duration)
+            .replace(/{publish_date}/g, projectData.publishDate)
+            .replace(/{project_status}/g, projectData.status)
+            .replace(/{project_id}/g, projectData.id)
+            .replace(/{category}/g, projectData.category)
+            .replace(/{hiring_rate}/g, projectData.hiringRate)
+            .replace(/{open_projects}/g, projectData.openProjects)
+            .replace(/{underway_projects}/g, projectData.underwayProjects)
+            .replace(/{client_joined}/g, projectData.clientJoined)
+            .replace(/{client_type}/g, projectData.clientType);
 
         // Save prompt to storage for the ChatGPT content script to pick up
         chrome.storage.local.set({ 'pendingChatGptPrompt': prompt }, () => {
@@ -328,27 +341,100 @@ function extractProjectData() {
     const statusLabel = document.querySelector('.label-prj-open, .label-prj-closed, .label-prj-completed, .label-prj-cancelled, .label-prj-underway, .label-prj-processing');
     const status = statusLabel ? statusLabel.textContent.trim() : 'غير معروف';
 
-    // Extract Ongoing Communications (التواصلات الجارية)
-    // Looking for the table row that contains "التواصلات الجارية"
+    // Extract Meta Data (Communications, Duration, Budget, Publish Date)
     let communications = '0';
+    let duration = 'غير محدد';
+    let budget = 'غير محدد';
+    let publishDate = 'غير معروف';
+
     const metaRows = document.querySelectorAll('.meta-row, .table-meta tr');
     metaRows.forEach(row => {
-        if (row && row.textContent.includes('التواصلات الجارية')) {
-            const val = row.querySelector('.meta-value, td:last-child');
-            if (val) {
-                communications = val.textContent.trim();
+        const label = row.querySelector('.meta-label, td:first-child')?.textContent.trim();
+        const value = row.querySelector('.meta-value, td:last-child')?.textContent.trim();
+
+        if (label && value) {
+            if (label.includes('التواصلات الجارية')) {
+                communications = value;
+            } else if (label.includes('مدة التنفيذ')) {
+                duration = value;
+            } else if (label.includes('الميزانية')) {
+                budget = value;
+            } else if (label.includes('تاريخ النشر')) {
+                publishDate = value;
             }
         }
     });
 
+    // Fallback/Specific selectors
+    const budgetEl = document.querySelector('[data-type="project-budget_range"]');
+    if (budgetEl) budget = budgetEl.textContent.trim();
+
+    const timeEl = document.querySelector('time[itemprop="datePublished"]');
+    if (timeEl) publishDate = timeEl.textContent.trim();
+
+    // Client Name
+    const clientNameEl = document.querySelector('.profile__name bdi');
+    const clientName = clientNameEl ? clientNameEl.textContent.trim() : 'غير معروف';
+
+    // Project ID
+    const projectId = getProjectId();
+
+    // Category
+    const categoryEl = document.querySelector('.breadcrumb-item[data-index="2"]');
+    const category = categoryEl ? categoryEl.textContent.trim() : 'غير معروف';
+
+    // Client Metrics & Info
+    let openProjects = '0';
+    let underwayProjects = '0';
+    let clientJoined = 'غير معروف';
+    let hiringRate = 'غير معروف';
+    let clientType = 'صاحب عمل';
+
+    const clientCard = document.querySelector('.profile_card');
+    if (clientCard) {
+        // Table info
+        const clientRows = clientCard.querySelectorAll('.table-meta tr');
+        clientRows.forEach(row => {
+            const label = row.querySelector('td:first-child')?.textContent.trim();
+            const value = row.querySelector('td:last-child')?.textContent.trim();
+            if (label && value) {
+                if (label.includes('معدل التوظيف')) hiringRate = value;
+                else if (label.includes('المشاريع المفتوحة')) openProjects = value;
+                else if (label.includes('مشاريع قيد التنفيذ')) underwayProjects = value;
+                else if (label.includes('تاريخ التسجيل')) clientJoined = value;
+            }
+        });
+
+        // Client Type (from meta items list)
+        const typeEl = clientCard.querySelector('.meta_items li');
+        if (typeEl) clientType = typeEl.textContent.trim();
+    }
+
+    // Tags
+    const tags = Array.from(document.querySelectorAll('.skills .tag'))
+        .map(tag => tag.textContent.trim())
+        .join(', ');
+
     const title = document.querySelector('.heada__title span[data-type="page-header-title"]')?.textContent.trim() || document.title;
 
     return {
+        id: projectId,
         status,
         communications,
         title,
         url: window.location.href,
-        lastChecked: new Date().toISOString()
+        lastChecked: new Date().toISOString(),
+        duration,
+        budget,
+        publishDate,
+        clientName,
+        tags,
+        category,
+        hiringRate,
+        openProjects,
+        underwayProjects,
+        clientJoined,
+        clientType
     };
 }
 
@@ -469,7 +555,7 @@ function createPromptModal(onSave, existingPrompt = null) {
 
     const contentHelp = document.createElement('div');
     contentHelp.className = 'mostaql-form-help';
-    contentHelp.textContent = 'المتغيرات المتاحة: {title}, {description}, {url}';
+    contentHelp.textContent = 'المتغيرات المتاحة: {title}, {description}, {url}, {tags}, {client_name}, {client_type}, {budget}, {duration}, {publish_date}, {project_id}, {project_status}, {category}, {hiring_rate}, {open_projects}, {underway_projects}, {client_joined}';
 
     const contentInput = document.createElement('textarea');
     contentInput.className = 'mostaql-form-textarea';

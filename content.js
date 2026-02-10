@@ -175,11 +175,8 @@ function injectTrackButton() {
                     a.style.textDecoration = 'none';
                     a.onclick = (e) => {
                         e.preventDefault();
-                        // Update state
-                        mainBtn.dataset.promptId = p.id;
-                        mainBtn.title = `استخدام القالب: ${p.title}`;
 
-                        // Execute immediately
+                        // Execute immediately without changing main button 
                         handleChatGptClick(p.id);
 
                         group.classList.remove('open');
@@ -288,8 +285,31 @@ function setButtonUntracked(btn) {
 }
 
 function handleChatGptClick(promptId) {
+    console.log('handleChatGptClick called with ID:', promptId);
+
     const projectData = extractProjectData(); // Gets title and url
+    // ...
     const description = getProjectDescription();
+
+    console.log('--- Mostaql Ext Data Debug ---');
+    console.log('Title:', projectData.title);
+    console.log('URL:', projectData.url);
+    console.log('Description:', description);
+    console.log('Tags:', projectData.tags);
+    console.log('Client Name:', projectData.clientName);
+    console.log('Budget:', projectData.budget);
+    console.log('Duration:', projectData.duration);
+    console.log('Publish Date:', projectData.publishDate);
+    console.log('Status:', projectData.status);
+    console.log('Project ID:', projectData.id);
+    console.log('Category:', projectData.category);
+    console.log('Hiring Rate:', projectData.hiringRate);
+    console.log('Open Projects:', projectData.openProjects);
+    console.log('Underway Projects:', projectData.underwayProjects);
+    console.log('Client Joined:', projectData.clientJoined);
+    console.log('Client Type:', projectData.clientType);
+    console.log('Communications:', projectData.communications);
+    console.log('------------------------------');
 
     if (!description) {
         alert('لم يتم العثور على وصف المشروع.');
@@ -299,20 +319,28 @@ function handleChatGptClick(promptId) {
     loadPrompts((prompts) => {
         let templateContent = '';
         const selectedPrompt = prompts.find(p => p.id === promptId);
+        console.log('Prompts loaded:', prompts.length);
+        console.log('Selected prompt found:', !!selectedPrompt);
 
         if (selectedPrompt) {
             templateContent = selectedPrompt.content;
             processTemplate(templateContent);
-        } else {
-            // Fallback: Fetch defaults from background
+        } else if (promptId === 'default_proposal') {
+            console.warn('Default prompt not modified/found locally, fetching original default.');
             chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
                 const defaults = (response && response.prompts) ? response.prompts : [];
-                if (defaults.length > 0) {
-                    processTemplate(defaults[0].content);
+                // Find "default_proposal" in defaults
+                const def = defaults.find(d => d.id === 'default_proposal');
+                if (def) {
+                    processTemplate(def.content);
                 } else {
-                    alert('خطأ: لم يتم العثور على القوالب الافتراضية.');
+                    alert('خطأ: تعذر تحميل القالب الافتراضي.');
                 }
             });
+            return;
+        } else {
+            console.error('Prompt ID not found:', promptId);
+            alert('خطأ: لم يتم العثور على القالب المحدد (ID: ' + promptId + '). تحقق من قائمة الأوامر.');
             return;
         }
 

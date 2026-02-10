@@ -387,11 +387,19 @@ function loadPrompts() {
   if (!container) return;
 
   chrome.storage.local.get(['prompts'], (data) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error loading prompts:', chrome.runtime.lastError);
+      return;
+    }
     let prompts = data.prompts || [];
 
     // If empty, fetch from background (Source of Truth)
     if (prompts.length === 0) {
       chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Error fetching default prompts:', chrome.runtime.lastError);
+          return;
+        }
         prompts = (response && response.prompts) ? response.prompts : [];
         // Save to local storage for next time
         chrome.storage.local.set({ prompts }, () => {
@@ -434,10 +442,16 @@ function renderPrompts(prompts) {
   // Event listeners for edit/delete buttons
   container.querySelectorAll('.btn-edit').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Fetch fresh data in case it changed
       chrome.storage.local.get(['prompts'], (d) => {
         let currentPrompts = d.prompts || [];
-        if (currentPrompts.length === 0) currentPrompts = getDefaultPrompts();
+        if (currentPrompts.length === 0) {
+          chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+            currentPrompts = (response && response.prompts) ? response.prompts : [];
+            const p = currentPrompts[btn.dataset.index];
+            if (p) openPromptForm(p, btn.dataset.index);
+          });
+          return;
+        }
 
         const p = currentPrompts[btn.dataset.index];
         if (p) openPromptForm(p, btn.dataset.index);
@@ -486,33 +500,37 @@ function savePrompt() {
   }
 
   chrome.storage.local.get(['prompts'], (data) => {
+    if (chrome.runtime.lastError) {
+      alert('خطأ في الوصول إلى التخزين المحلي');
+      console.error(chrome.runtime.lastError);
+      return;
+    }
     let prompts = data.prompts || [];
 
     // If empty storage but we were editing a default prompt (which existed in memory), 
     // we need to initialize storage with defaults first OR just handle the push correctly.
     // Easiest is to treat "prompts" as the source of truth.
-    if (prompts.length === 0) {
-      // If user is adding a new one, this is fine. 
-      // If user was editing a default, index might point to 0. 
-      // But prompts is empty. So prompts[0] is undefined.
-      // We should seed defaults if we are editing a default.
+    // If user is adding a new one, this is fine. 
+    // If user was editing a default, index might point to 0. 
+    // But prompts is empty. So prompts[0] is undefined.
+    // We should seed defaults if we are editing a default.
 
-      // Async fetch defaults then retry
-      chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
-        const defaults = (response && response.prompts) ? response.prompts : [];
-        if (index >= 0 && index < defaults.length) {
-          prompts = defaults;
-          proceedSave(prompts, index, title, content);
-        } else {
-          // Just add as new
-          proceedSave([], -1, title, content);
-        }
-      });
-      return;
-    }
+    // Async fetch defaults then retry
+    chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+      const defaults = (response && response.prompts) ? response.prompts : [];
+      if (index >= 0 && index < defaults.length) {
+        prompts = defaults;
+        proceedSave(prompts, index, title, content);
+      } else {
+        // Just add as new
+        proceedSave([], -1, title, content);
+      }
+    });
+    return;
+  }
 
     proceedSave(prompts, index, title, content);
-  });
+});
 }
 
 function proceedSave(prompts, index, title, content) {
@@ -535,59 +553,59 @@ function proceedSave(prompts, index, title, content) {
     closePromptForm();
     loadPrompts();
   });
+}
 
-  function deletePrompt(index) {
-    if (confirm('هل أنت متأكد من حذف هذا الأمر؟')) {
-      chrome.storage.local.get(['prompts'], (data) => {
-        let prompts = data.prompts || [];
-
-        // If deleting a default that wasn't saved yet
-        if (prompts.length === 0) {
-          chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
-            prompts = (response && response.prompts) ? response.prompts : [];
-            if (index >= 0 && index < prompts.length) {
-              prompts.splice(index, 1);
-              chrome.storage.local.set({ prompts }, loadPrompts);
-            }
-          });
-          return;
-        }
-
-        if (index >= 0 && index < prompts.length) {
-          prompts.splice(index, 1);
-          chrome.storage.local.set({ prompts }, loadPrompts);
-        }
-      });
-    }
-  }
-
-  function exportPrompts() {
+function deletePrompt(index) {
+  if (confirm('هل أنت متأكد من حذف هذا الأمر؟')) {
     chrome.storage.local.get(['prompts'], (data) => {
       let prompts = data.prompts || [];
 
-      // If empty storage, export defaults from background
       if (prompts.length === 0) {
         chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
-          const defaults = (response && response.prompts) ? response.prompts : [];
-          downloadPrompts(defaults);
+          prompts = (response && response.prompts) ? response.prompts : [];
+          if (index >= 0 && index < prompts.length) {
+            prompts.splice(index, 1);
+            chrome.storage.local.set({ prompts }, loadPrompts);
+          }
         });
         return;
       }
 
-      downloadPrompts(prompts);
+      if (index >= 0 && index < prompts.length) {
+        prompts.splice(index, 1);
+        chrome.storage.local.set({ prompts }, loadPrompts);
+      }
     });
   }
+}
 
-  function downloadPrompts(prompts) {
+function exportPrompts() {
+  chrome.storage.local.get(['prompts'], (data) => {
+    let prompts = data.prompts || [];
 
-    const blob = new Blob([JSON.stringify(prompts, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'mostaql-prompts.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    // If empty storage, export defaults from background
+    if (prompts.length === 0) {
+      chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+        const defaults = (response && response.prompts) ? response.prompts : [];
+        downloadPrompts(defaults);
+      });
+      return;
+    }
+
+    downloadPrompts(prompts);
   });
+}
+
+function downloadPrompts(prompts) {
+
+  const blob = new Blob([JSON.stringify(prompts, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mostaql-prompts.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
 }
 
 function importPrompts(event) {

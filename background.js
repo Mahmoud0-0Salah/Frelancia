@@ -16,20 +16,21 @@ const DEFAULT_PROMPTS = [
     content: `أريد مساعدتك في كتابة عرض لهذا المشروع على منصة مستقل.
     
 عنوان المشروع: {title}
-    
+القسم: {category}
+
+تفاصيل المشروع:
 الميزانية: {budget}
 مدة التنفيذ: {duration}
 تاريخ النشر: {publish_date}
-صاحب العمل: {client_name}
 الوسوم: {tags}
-حالة المشروع: {project_status}
 
-تفاصيل المشروع:
+معلومات صاحب العمل:
+الاسم: {client_name}
+
+وصف المشروع:
 {description}
     
-رابط المشروع: {url}
-    
-يرجى كتابة عرض احترافي ومقنع يوضح خبرتي في هذا المجال ويشرح كيف يمكنني تنفيذ المطلوب بدقة.`
+يرجى كتابة عرض احترافي ومقنع يوضح خبرتي في هذا المجال ويشرح كيف يمكنني تنفيذ المطلوب بدقة، مع مراعاة تفاصيل المشروع ومتطلبات العميل.`
   }
 ];
 
@@ -37,23 +38,40 @@ const DEFAULT_PROMPTS = [
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extension installed');
 
-  // Set default settings
-  chrome.storage.local.set({
-    settings: {
-      development: true,
-      ai: true,
-      all: true,
-      sound: true,
-      interval: 1
-    },
-    seenJobs: [],
-    stats: {
-      lastCheck: null,
-      todayCount: 0,
-      todayDate: new Date().toDateString()
-    },
-    trackedProjects: {},
-    prompts: DEFAULT_PROMPTS // Seed with defaults on install
+  chrome.storage.local.get(['settings', 'seenJobs', 'stats', 'trackedProjects', 'prompts'], (data) => {
+    const changes = {};
+
+    if (!data.settings) {
+      changes.settings = {
+        development: true,
+        ai: true,
+        all: true,
+        sound: true,
+        interval: 1
+      };
+    }
+
+    if (!data.seenJobs) changes.seenJobs = [];
+
+    if (!data.stats) {
+      changes.stats = {
+        lastCheck: null,
+        todayCount: 0,
+        todayDate: new Date().toDateString()
+      };
+    }
+
+    if (!data.trackedProjects) changes.trackedProjects = {};
+
+    // Only seed prompts if strictly missing or empty array (optional, maybe user deleted all?)
+    // Let's safe-guard: if undefined, seed.
+    if (!data.prompts) {
+      changes.prompts = DEFAULT_PROMPTS;
+    }
+
+    if (Object.keys(changes).length > 0) {
+      chrome.storage.local.set(changes);
+    }
   });
 
   // Create alarm for checking jobs

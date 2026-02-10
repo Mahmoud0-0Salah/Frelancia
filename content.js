@@ -347,7 +347,7 @@ function handleChatGptClick(promptId) {
 
 function getProjectId() {
     const match = window.location.pathname.match(/\/project\/(\d+)/);
-    return match ? match[1] : null;
+    return match ? match[1] : '';
 }
 
 function extractProjectData() {
@@ -429,26 +429,26 @@ function extractProjectData() {
         .map(tag => tag.textContent.trim())
         .join(', ');
 
-    const title = document.querySelector('.heada__title span[data-type="page-header-title"]')?.textContent.trim() || document.title;
+    const title = document.querySelector('.heada__title span[data-type="page-header-title"]')?.textContent.trim() || document.title || 'مشروع غير معنون';
 
     return {
-        id: projectId,
-        status,
-        communications,
-        title,
+        id: projectId || '',
+        status: status || 'غير معروف',
+        communications: communications || '0',
+        title: title,
         url: window.location.href,
         lastChecked: new Date().toISOString(),
-        duration,
-        budget,
-        publishDate,
-        clientName,
-        tags,
-        category,
-        hiringRate,
-        openProjects,
-        underwayProjects,
-        clientJoined,
-        clientType
+        duration: duration || 'غير محدد',
+        budget: budget || 'غير محدد',
+        publishDate: publishDate || 'غير معروف',
+        clientName: clientName || 'غير معروف',
+        tags: tags || '',
+        category: category || 'عام',
+        hiringRate: hiringRate || 'غير متوفر',
+        openProjects: openProjects || '0',
+        underwayProjects: underwayProjects || '0',
+        clientJoined: clientJoined || 'غير معروف',
+        clientType: clientType || 'صاحب عمل'
     };
 }
 
@@ -465,6 +465,10 @@ function getProjectDescription() {
 
 function loadPrompts(callback) {
     chrome.storage.local.get(['prompts'], (data) => {
+        if (chrome.runtime.lastError) {
+            console.error('Error loading prompts:', chrome.runtime.lastError);
+            return;
+        }
         const storedPrompts = data.prompts || [];
 
         if (storedPrompts.length > 0) {
@@ -472,6 +476,10 @@ function loadPrompts(callback) {
         } else {
             // If empty, fetch defaults from background (Source of Truth)
             chrome.runtime.sendMessage({ action: 'getDefaultPrompts' }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('Error fetching default prompts:', chrome.runtime.lastError);
+                    return;
+                }
                 const defaults = (response && response.prompts) ? response.prompts : [];
 
                 // Save them to storage so we don't ask again

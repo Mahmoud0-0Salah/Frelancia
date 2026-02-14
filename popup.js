@@ -52,6 +52,23 @@ function loadSettings() {
     document.getElementById('sound').checked = settings.sound !== false;
     document.getElementById('interval').value = settings.interval || 1;
     document.getElementById('aiChatUrl').value = settings.aiChatUrl || 'https://chatgpt.com/';
+    document.getElementById('telegramToken').value = settings.telegramToken || '';
+    document.getElementById('telegramChatId').value = settings.telegramChatId || '';
+    
+    // Quiet Hours
+    const qEnabled = settings.quietHoursEnabled === true;
+    document.getElementById('quietHoursEnabled').checked = qEnabled;
+    document.getElementById('quietHoursStart').value = settings.quietHoursStart || '00:00';
+    document.getElementById('quietHoursEnd').value = settings.quietHoursEnd || '07:00';
+    if (qEnabled) document.getElementById('quietHoursFields').classList.remove('hidden');
+    
+    // Advanced filters
+    document.getElementById('keywordsInclude').value = settings.keywordsInclude || '';
+    document.getElementById('keywordsExclude').value = settings.keywordsExclude || '';
+    document.getElementById('minBudget').value = settings.minBudget || '';
+    document.getElementById('minHiringRate').value = settings.minHiringRate || '';
+    document.getElementById('maxDuration').value = settings.maxDuration || '';
+    document.getElementById('minClientAge').value = settings.minClientAge || '';
   });
 }
 
@@ -181,8 +198,19 @@ function untrackProject(id) {
 // ==========================================
 function setupEventListeners() {
   // Notification toggles - auto save
-  ['development', 'ai', 'all', 'sound'].forEach(id => {
-    document.getElementById(id).addEventListener('change', saveNotificationSettings);
+  ['development', 'ai', 'all', 'sound', 'quietHoursEnabled'].forEach(id => {
+    document.getElementById(id).addEventListener('change', (e) => {
+      if (id === 'quietHoursEnabled') {
+        document.getElementById('quietHoursFields').classList.toggle('hidden', !e.target.checked);
+      }
+      saveNotificationSettings();
+    });
+  });
+
+  // Advanced filters - auto save on input
+  ['keywordsInclude', 'keywordsExclude', 'minBudget', 'minHiringRate', 'maxDuration', 'minClientAge', 'telegramToken', 'telegramChatId', 'quietHoursStart', 'quietHoursEnd'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', saveNotificationSettings);
   });
 
   // Interval change
@@ -245,7 +273,18 @@ function saveNotificationSettings() {
     all: document.getElementById('all').checked,
     sound: document.getElementById('sound').checked,
     interval: parseInt(document.getElementById('interval').value),
-    aiChatUrl: document.getElementById('aiChatUrl').value.trim()
+    aiChatUrl: document.getElementById('aiChatUrl').value.trim(),
+    keywordsInclude: document.getElementById('keywordsInclude').value.trim(),
+    keywordsExclude: document.getElementById('keywordsExclude').value.trim(),
+    minBudget: parseInt(document.getElementById('minBudget').value) || 0,
+    minHiringRate: parseInt(document.getElementById('minHiringRate').value) || 0,
+    maxDuration: parseInt(document.getElementById('maxDuration').value) || 0,
+    minClientAge: parseInt(document.getElementById('minClientAge').value) || 0,
+    telegramToken: document.getElementById('telegramToken').value.trim(),
+    telegramChatId: document.getElementById('telegramChatId').value.trim(),
+    quietHoursEnabled: document.getElementById('quietHoursEnabled').checked,
+    quietHoursStart: document.getElementById('quietHoursStart').value,
+    quietHoursEnd: document.getElementById('quietHoursEnd').value
   };
 
   chrome.storage.local.set({ settings });

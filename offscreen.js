@@ -10,8 +10,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'parseJobs') {
     const jobs = parseMostaqlHTML(message.html);
     sendResponse({ success: true, jobs: jobs });
-  } else if (message.action === 'parseTrackedData') {
-    const data = parseTrackedData(message.html);
+  } else if (message.action === 'parseTrackedData' || message.action === 'parseProjectDetails') {
+    const data = parseProjectDetails(message.html);
     sendResponse({ success: true, data: data });
   } else if (message.action === 'playTrackedSound') {
     playTrackedSound();
@@ -103,7 +103,7 @@ function parseMostaqlHTML(html) {
     return jobs;
 }
 
-function parseTrackedData(html) {
+function parseProjectDetails(html) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     
@@ -111,19 +111,37 @@ function parseTrackedData(html) {
     const statusLabel = doc.querySelector('.label-prj-open, .label-prj-closed, .label-prj-completed, .label-prj-cancelled, .label-prj-underway, .label-prj-processing');
     const status = statusLabel ? statusLabel.textContent.trim() : 'غير معروف';
 
-    // Extract Ongoing Communications (التواصلات الجارية)
+    // Extract Description
+    const descriptionEl = doc.querySelector('.project-post__body');
+    const description = descriptionEl ? descriptionEl.textContent.trim() : '';
+
+    // Extract Metadata
     let communications = '0';
+    let hiringRate = '';
+    let duration = 'غير محددة';
+    let budget = '';
+    let registrationDate = '';
+    
     const metaRows = doc.querySelectorAll('.meta-row, .table-meta tr');
     metaRows.forEach(row => {
-        if (row.textContent.includes('التواصلات الجارية')) {
-            const val = row.querySelector('.meta-value, td:last-child');
-            if (val) {
-                communications = val.textContent.trim();
-            }
+        const text = row.textContent;
+        const val = row.querySelector('.meta-value, td:last-child');
+        if (!val) return;
+
+        if (text.includes('التواصلات الجارية')) {
+            communications = val.textContent.trim();
+        } else if (text.includes('معدل التوظيف')) {
+            hiringRate = val.textContent.trim();
+        } else if (text.includes('مدة التنفيذ')) {
+            duration = val.textContent.trim();
+        } else if (text.includes('الميزانية')) {
+            budget = val.textContent.trim();
+        } else if (text.includes('تاريخ التسجيل')) {
+            registrationDate = val.textContent.trim();
         }
     });
 
-    return { status, communications };
+    return { status, communications, hiringRate, description, duration, budget, registrationDate };
 }
 
 function playNotificationSound() {

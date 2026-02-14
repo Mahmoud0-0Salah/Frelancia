@@ -25,6 +25,7 @@
     <!-- Tabs -->
     <div class="tabs">
       <button class="tab-btn active" data-tab="notifications">التنبيهات</button>
+      <button class="tab-btn" data-tab="customization">تخصيص التنبيهات</button>
       <button class="tab-btn" data-tab="prompts">الأوامر</button>
       <button class="tab-btn" data-tab="settings">الإعدادات</button>
     </div>
@@ -168,6 +169,101 @@
       <div id="checkResult" class="result-message hidden"></div>
     </div>
 
+    <!-- Tab: Customization -->
+    <div class="tab-content" id="customization">
+      <div class="section">
+        <h2>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            class="section-icon">
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+          </svg>
+          فلترة ذكية (Smart Filters)
+        </h2>
+        <div class="form-group" style="margin-bottom: 15px;">
+          <label>كلمات البحث (تضمين):</label>
+          <input type="text" id="keywordsInclude" placeholder="React, Node, تصميم..."
+            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+          <p class="help-text" style="font-size: 0.75em; color: #666; margin-top: 2px;">افصل بين الكلمات بفاصلة (,)</p>
+        </div>
+        <div class="form-group" style="margin-bottom: 15px;">
+          <label>كلمات مستبعدة:</label>
+          <input type="text" id="keywordsExclude" placeholder="وردبريس, WordPress..."
+            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom: 15px;">
+          <label>أدنى ميزانية ($):</label>
+          <input type="number" id="minBudget" placeholder="مثلاً: 50"
+            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom: 15px;">
+          <label>أدنى معدل توظيف للعميل (%):</label>
+          <input type="number" id="minHiringRate" placeholder="مثلاً: 80"
+            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom: 15px;">
+          <label>أقصى مدة تنفيذ (يوم):</label>
+          <input type="number" id="maxDuration" placeholder="مثلاً: 7"
+            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+        </div>
+        <div class="form-group">
+          <label>أدنى عمر لحساب العميل (يوم):</label>
+          <input type="number" id="minClientAge" placeholder="مثلاً: 30"
+            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            class="section-icon">
+            <path d="M22 2L2 8.5L11 13L19 6L12 14L16 22L22 2Z"></path>
+          </svg>
+          تنبيهات Telegram
+        </h2>
+        <div class="form-group" style="margin-bottom: 10px;">
+          <label>Bot Token:</label>
+          <input type="text" id="telegramToken" placeholder="123456789:ABCDE..."
+            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; direction: ltr; text-align: left;">
+        </div>
+        <div class="form-group" style="margin-bottom: 5px;">
+          <label>Chat ID:</label>
+          <input type="text" id="telegramChatId" placeholder="123456789"
+            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; direction: ltr; text-align: left;">
+        </div>
+        <p class="help-text" style="font-size: 0.8em; color: #666;">
+          استخدم <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> لمعرفة Chat ID الخاص بك.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            class="section-icon">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          ساعات الهدوء (Quiet Hours)
+        </h2>
+        <div class="toggle-item">
+          <span>تفعيل ساعات الهدوء</span>
+          <label class="switch">
+            <input type="checkbox" id="quietHoursEnabled">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div id="quietHoursFields" class="form-group-row hidden" style="display: flex; gap: 10px; margin-top: 10px;">
+          <div style="flex: 1;">
+            <label style="font-size: 0.8em; display: block; margin-bottom: 2px;">من:</label>
+            <input type="time" id="quietHoursStart" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #ddd;">
+          </div>
+          <div style="flex: 1;">
+            <label style="font-size: 0.8em; display: block; margin-bottom: 2px;">إلى:</label>
+            <input type="time" id="quietHoursEnd" style="width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #ddd;">
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab: Prompts -->
     <div class="tab-content" id="prompts">
       <div class="actions" style="margin-bottom: 15px;">
@@ -223,7 +319,7 @@
         <div class="form-group" style="margin-bottom: 10px;">
           <label style="display: block; margin-bottom: 5px;">الرابط الافتراضي:</label>
           <input type="text" id="aiChatUrl" placeholder="https://chatgpt.com/"
-            style="width: 100%; padding: 8px; direction: ltr; text-align: left; border: 1px solid #ddd; border-radius: 4px;">
+            style="width: 100%; padding: 8px; direction: ltr; text-align: left; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
           <p class="help-text" style="font-size: 0.8em; color: #666; margin-top: 5px;">
             يمكنك وضع رابط مشروعك الخاص (Project URL) هنا ليتم فتح الشات عليه مباشرة.
           </p>

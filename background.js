@@ -109,7 +109,13 @@ async function checkForNewJobs() {
         const jobs = await fetchJobs(url);
         console.log(`Found ${jobs.length} total jobs in ${category}`);
 
-        const newJobs = jobs.filter(job => !seenJobs.includes(job.id));
+        const newJobs = jobs.filter(job => {
+          // 1. Check if already seen
+          if (seenJobs.includes(job.id)) return false;
+
+          // 2. Apply Filters
+          return applyFilters(job, settings);
+        });
         console.log(`Found ${newJobs.length} NEW jobs in ${category}`);
 
         allNewJobs = allNewJobs.concat(newJobs);
@@ -137,10 +143,55 @@ async function checkForNewJobs() {
 
     // Show notification if new jobs found
     if (allNewJobs.length > 0) {
-      showNotification(allNewJobs);
+      // 3. Quiet Hours Check
+      if (settings.quietHoursEnabled && isQuietHour(settings)) {
+        console.log('Quiet Hours active, suppressing notifications/sounds');
+        // We still store them as seen, but don't alert.
+        // Option: Send to Telegram anyway? Usually Quiet implies SILENCE everywhere.
+        return { success: true, newJobs: 0, suppressed: allNewJobs.length };
+      }
 
-      if (settings.sound) {
-        playSound();
+      // Deeper filtering and details extraction for jobs that passed basic list filters
+      const qualityJobs = [];
+      for (const job of allNewJobs) {
+        console.log(`Deep checking job ${job.id} for details...`);
+        const projectDetails = await fetchProjectDetails(job.url);
+        
+        if (projectDetails) {
+          // Enrich job object with details
+          job.description = projectDetails.description;
+          job.hiringRate = projectDetails.hiringRate;
+          job.status = projectDetails.status;
+          job.communications = projectDetails.communications;
+          job.duration = projectDetails.duration;
+          job.registrationDate = projectDetails.registrationDate;
+          
+          // If budget was missing from list page, update it from project page
+          if (!job.budget && projectDetails.budget) {
+            job.budget = projectDetails.budget;
+          }
+
+          // 2nd Pass: Re-check filters with full data (Description, Hiring Rate, Budget etc. now definitely available)
+          if (!applyFilters(job, settings)) {
+            console.log(`Filtering out job ${job.id} after deep check`);
+            continue;
+          }
+        }
+
+        qualityJobs.push(job);
+      }
+
+      if (qualityJobs.length > 0) {
+        showNotification(qualityJobs);
+
+        if (settings.sound) {
+          playSound();
+        }
+
+        // Send to Telegram if configured
+        if (settings.telegramToken && settings.telegramChatId) {
+          sendTelegramNotification(qualityJobs, settings);
+        }
       }
     }
 
@@ -151,6 +202,147 @@ async function checkForNewJobs() {
   } catch (error) {
     console.error('Error checking jobs:', error);
     return { success: false, error: error.message };
+  }
+}
+
+// Filter logic
+function applyFilters(job, settings) {
+  // Budget Filter
+  if (settings.minBudget > 0 && job.budget) {
+    const budgetValue = parseBudgetValue(job.budget);
+    if (budgetValue > 0 && budgetValue < settings.minBudget) {
+      console.log(`Filtering out job ${job.id} due to low budget: ${job.budget} -> ${budgetValue} < ${settings.minBudget}`);
+      return false;
+    }
+  }
+
+  // Hiring Rate Filter
+  if (settings.minHiringRate > 0 && job.hiringRate) {
+    const hiringRateValue = parseHiringRate(job.hiringRate);
+    if (hiringRateValue < settings.minHiringRate) {
+      console.log(`Filtering out job ${job.id} due to low hiring rate: ${job.hiringRate} -> ${hiringRateValue}% < ${settings.minHiringRate}%`);
+      return false;
+    }
+  }
+
+  // Keyword Filter (Include)
+  if (settings.keywordsInclude && settings.keywordsInclude.trim() !== '') {
+    const includes = settings.keywordsInclude.toLowerCase().split(',').map(k => k.trim());
+    const jobContent = (job.title + ' ' + (job.description || '')).toLowerCase();
+    const matchesMatch = includes.some(k => jobContent.includes(k));
+    if (!matchesMatch) {
+      console.log(`Filtering out job ${job.id} because it doesn't match include keywords`);
+      return false;
+    }
+  }
+
+  // Keyword Filter (Exclude)
+  if (settings.keywordsExclude && settings.keywordsExclude.trim() !== '') {
+    const excludes = settings.keywordsExclude.toLowerCase().split(',').map(k => k.trim());
+    const jobContent = (job.title + ' ' + (job.description || '')).toLowerCase();
+    const matchesExclude = excludes.some(k => jobContent.includes(k));
+    if (matchesExclude) {
+      console.log(`Filtering out job ${job.id} because it matches exclude keywords`);
+      return false;
+    }
+  }
+
+  // Duration Filter
+  if (settings.maxDuration > 0 && job.duration) {
+    const days = parseDurationDays(job.duration);
+    if (days > 0 && days > settings.maxDuration) {
+      console.log(`Filtering out job ${job.id} due to long duration: ${job.duration} -> ${days} days > ${settings.maxDuration}`);
+      return false;
+    }
+  }
+
+  // Client Age Filter
+  if (settings.minClientAge > 0 && job.registrationDate) {
+    const ageDays = calculateClientAgeDays(job.registrationDate);
+    if (ageDays >= 0 && ageDays < settings.minClientAge) {
+      console.log(`Filtering out job ${job.id} due to young account: ${job.registrationDate} -> ${ageDays} days < ${settings.minClientAge}`);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function parseHiringRate(rateText) {
+  if (!rateText) return 0;
+  if (rateText.includes('بعد')) return 0; // "لم يحسب بعد"
+  
+  // Extract number, including potential decimals (e.g., 46.67%)
+  const match = rateText.replace(/,/g, '').match(/\d+(\.\d+)?/);
+  if (match) {
+    return parseFloat(match[0]);
+  }
+  return 0;
+}
+
+function parseDurationDays(durationText) {
+  // Typical formats: "5 أيام", "يوم واحد", "10 أيام"
+  const match = durationText.match(/\d+/);
+  if (match) return parseInt(match[0]);
+  if (durationText.includes("يوم واحد")) return 1;
+  return 0;
+}
+
+function calculateClientAgeDays(dateText) {
+  // Format: "14 فبراير 2026"
+  const arabicMonths = {
+    'يناير': 0, 'فبراير': 1, 'مارس': 2, 'أبريل': 3, 'مايو': 4, 'يونيو': 5,
+    'يوليو': 6, 'أغسطس': 7, 'سبتمبر': 8, 'أكتوبر': 9, 'نوفمبر': 10, 'ديسمبر': 11
+  };
+  
+  const parts = dateText.split(' ');
+  if (parts.length < 3) return -1;
+  
+  const day = parseInt(parts[0]);
+  const monthName = parts[1];
+  const year = parseInt(parts[2]);
+  const month = arabicMonths[monthName];
+  
+  if (isNaN(day) || month === undefined || isNaN(year)) return -1;
+  
+  const regDate = new Date(year, month, day);
+  const now = new Date();
+  const diffTime = Math.abs(now - regDate);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+  
+  return diffDays;
+}
+
+function parseBudgetValue(budgetText) {
+  if (!budgetText) return 0;
+  // Mostaql budgets are usually like "$500.00 - $1000.00", "$25.00 - $50.00", or "$1,000 - $2,500"
+  // We extract all numbers (including decimals) and take the HIGHEST to see if it meets the user's minimum
+  const matches = budgetText.replace(/,/g, '').match(/\d+(\.\d+)?/g);
+  if (!matches) return 0;
+  
+  // Return the maximum value found in the range
+  const values = matches.map(m => parseFloat(m));
+  return Math.max(...values);
+}
+
+function isQuietHour(settings) {
+  if (!settings.quietHoursStart || !settings.quietHoursEnd) return false;
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const [startH, startM] = settings.quietHoursStart.split(':').map(Number);
+  const [endH, endM] = settings.quietHoursEnd.split(':').map(Number);
+
+  const startMinutes = startH * 60 + startM;
+  const endMinutes = endH * 60 + endM;
+
+  if (startMinutes < endMinutes) {
+    // Range within same day (e.g. 09:00 - 17:00)
+    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+  } else {
+    // Range wraps around midnight (e.g. 23:00 - 07:00)
+    return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
   }
 }
 
@@ -195,6 +387,39 @@ async function fetchJobs(url) {
   } catch (error) {
     console.error('Error fetching jobs:', error);
     return [];
+  }
+}
+
+// Fetch project details for deep filtering
+async function fetchProjectDetails(url) {
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ar,en;q=0.9',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+
+    if (!response.ok) return null;
+
+    const html = await response.text();
+    // Re-use offscreen parser for project details
+    await setupOffscreenDocument();
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: 'parseProjectDetails', html: html }, (response) => {
+        if (response && response.success) {
+          resolve(response.data);
+        } else {
+          resolve(null);
+        }
+      });
+      setTimeout(() => resolve(null), 3000);
+    });
+  } catch (error) {
+    console.error('Error fetching project details:', error);
+    return null;
   }
 }
 
@@ -337,9 +562,16 @@ function showNotification(jobs) {
     ? 'مشروع جديد على مستقل'
     : `${jobs.length} مشاريع جديدة على مستقل`;
 
-  const message = jobs.length === 1
-    ? `${job.title}${job.budget ? '\n' + job.budget : ''}`
-    : `${job.title}\nو ${jobs.length - 1} مشاريع أخرى`;
+  let message = '';
+  if (jobs.length === 1) {
+    // Single job: Rich message with description
+    const budget = job.budget ? `[ ${job.budget} ]` : '';
+    const desc = job.description ? `\n\n${job.description.substring(0, 150)}${job.description.length > 150 ? '...' : ''}` : '';
+    message = `${job.title} ${budget}${desc}`;
+  } else {
+    // Multiple jobs
+    message = `${job.title}\nو ${jobs.length - 1} مشاريع أخرى`;
+  }
 
   chrome.notifications.create({
     type: 'basic',
@@ -424,6 +656,53 @@ async function playTrackedSound() {
     }, 100);
   } catch (error) {
     console.error('Error playing tracked sound:', error);
+  }
+}
+
+// Send Telegram Message
+async function sendTelegramNotification(jobs, settings) {
+  const token = settings.telegramToken;
+  const chatId = settings.telegramChatId;
+  if (!token || !chatId) return;
+
+  const job = jobs[0];
+  let message = "";
+
+  if (jobs.length === 1) {
+    message = `<b>🔔 مشروع جديد على مستقل</b>\n\n`;
+    message += `<b>📌 العنوان:</b> ${job.title}\n`;
+    if (job.budget) message += `<b>💰 الميزانية:</b> ${job.budget}\n`;
+    if (job.duration) message += `<b>⏱️ المدة:</b> ${job.duration}\n`;
+    if (job.hiringRate) message += `<b>✅ معدل التوظيف:</b> ${job.hiringRate}\n`;
+    
+    if (job.description) {
+      const shortDesc = job.description.substring(0, 300) + (job.description.length > 300 ? "..." : "");
+      message += `\n<b>📝 الوصف:</b>\n<i>${shortDesc}</i>\n`;
+    }
+    
+    message += `\n🔗 <a href="${job.url}">رابط المشروع</a>`;
+  } else {
+    message = `<b>🔔 ${jobs.length} مشاريع جديدة على مستقل</b>\n\n`;
+    jobs.forEach((j, index) => {
+      message += `${index + 1}. <a href="${j.url}">${j.title}</a> [${j.budget || "غير محدد"}]\n`;
+    });
+  }
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: "HTML",
+      }),
+    });
+    const result = await response.json();
+    if (!result.ok) console.error("Telegram API Error:", result);
+    else console.log(`Telegram rich message sent for job ${job.id}`);
+  } catch (error) {
+    console.error("Error sending Telegram message:", error);
   }
 }
 

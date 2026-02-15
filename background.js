@@ -38,7 +38,7 @@ const DEFAULT_PROMPTS = [
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Extension installed');
 
-  chrome.storage.local.get(['settings', 'seenJobs', 'stats', 'trackedProjects', 'prompts'], (data) => {
+  chrome.storage.local.get(['settings', 'seenJobs', 'stats', 'trackedProjects', 'prompts', 'recentJobs'], (data) => {
     const changes = {};
 
     if (!data.settings) {
@@ -52,6 +52,7 @@ chrome.runtime.onInstalled.addListener(() => {
     }
 
     if (!data.seenJobs) changes.seenJobs = [];
+    if (!data.recentJobs) changes.recentJobs = [];
 
     if (!data.stats) {
       changes.stats = {
@@ -89,10 +90,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // Check for new jobs
 async function checkForNewJobs() {
   try {
-    const data = await chrome.storage.local.get(['settings', 'seenJobs', 'stats']);
+    const data = await chrome.storage.local.get(['settings', 'seenJobs', 'stats', 'recentJobs']);
     const settings = data.settings || {};
     let seenJobs = data.seenJobs || [];
-    let stats = data.stats || { lastCheck: null, todayCount: 0, todayDate: new Date().toDateString() };
+    let recentJobs = data.recentJobs || [];
+    let stats = data.stats || {};
+    // Ensure stats has default values (migration safety)
+    if (typeof stats.todayCount !== 'number') stats.todayCount = 0;
+    if (!stats.todayDate) stats.todayDate = new Date().toDateString();
+    if (!stats.lastCheck) stats.lastCheck = null;
 
     // Reset today count if new day
     if (stats.todayDate !== new Date().toDateString()) {
@@ -108,6 +114,20 @@ async function checkForNewJobs() {
         console.log(`Checking category: ${category}`);
         const jobs = await fetchJobs(url);
         console.log(`Found ${jobs.length} total jobs in ${category}`);
+
+        // Update Recent Jobs (Visible in dashboard, regardless if seen or not)
+        jobs.forEach(job => {
+          if (applyFilters(job, settings)) {
+            const existingIdx = recentJobs.findIndex(rj => rj.id === job.id);
+            if (existingIdx !== -1) {
+              // Update existing entry with potentially newer metadata (budget/time from list)
+              recentJobs[existingIdx] = { ...recentJobs[existingIdx], ...job };
+            } else {
+              // Add as new recent job at the top
+              recentJobs.unshift(job);
+            }
+          }
+        });
 
         const newJobs = jobs.filter(job => {
           // 1. Check if already seen
@@ -129,32 +149,77 @@ async function checkForNewJobs() {
       }
     }
 
+    // --- PHASE 1: Immediate Commit ---
+    // Update basic stats and store shallow results so the dashboard updates immediately.
+    stats.lastCheck = new Date().toISOString();
+    stats.todayCount += allNewJobs.length;
+
     // Keep only last 500 job IDs to prevent storage overflow
     if (seenJobs.length > 500) {
       seenJobs = seenJobs.slice(-500);
     }
 
-    // Update stats
-    stats.lastCheck = new Date().toISOString();
-    stats.todayCount += allNewJobs.length;
+    // Keep only last 50 recent jobs for dashboard, ensuring they are sorted by recency
+    recentJobs.sort((a, b) => {
+      const idA = parseInt(a.id) || 0;
+      const idB = parseInt(b.id) || 0;
+      return idB - idA;
+    });
+    recentJobs = recentJobs.slice(0, 50);
 
-    // Save to storage
-    await chrome.storage.local.set({ seenJobs, stats });
+    // Save Basic state immediately so dashboard shows projects right away
+    await chrome.storage.local.set({ seenJobs, stats, recentJobs });
+    console.log(`Phase 1 Commit: Saved ${allNewJobs.length} new jobs to dashboard.`);
 
-    // Show notification if new jobs found
-    if (allNewJobs.length > 0) {
-      // 3. Quiet Hours Check
-      if (settings.quietHoursEnabled && isQuietHour(settings)) {
-        console.log('Quiet Hours active, suppressing notifications/sounds');
-        // We still store them as seen, but don't alert.
-        // Option: Send to Telegram anyway? Usually Quiet implies SILENCE everywhere.
-        return { success: true, newJobs: 0, suppressed: allNewJobs.length };
+    // --- PHASE 2: Deep Filtering & Notifications ---
+    
+    // 2.1 Enrichment: Ensure top 10 projects have full details
+    // This helps if they were seen previously but details were never fetched
+    const top10 = recentJobs.slice(0, 10);
+    for (const job of top10) {
+      if (!job.description || !job.hiringRate || job.hiringRate === 'غير محدد') {
+        console.log(`Enriching top project ${job.id} for dashboard...`);
+        try {
+          const projectDetails = await fetchProjectDetails(job.url);
+          if (projectDetails) {
+            job.description = projectDetails.description;
+            job.hiringRate = projectDetails.hiringRate;
+            job.status = projectDetails.status;
+            job.communications = projectDetails.communications;
+            job.duration = projectDetails.duration;
+            job.registrationDate = projectDetails.registrationDate;
+            if (!job.budget && projectDetails.budget) job.budget = projectDetails.budget;
+
+            // Commit change to storage
+            const rjIdx = recentJobs.findIndex(rj => rj.id === job.id);
+            if (rjIdx !== -1) {
+              recentJobs[rjIdx] = { ...recentJobs[rjIdx], ...job };
+              chrome.storage.local.set({ recentJobs });
+            }
+          }
+        } catch (e) {
+          console.error(`Error enriching job ${job.id}:`, e);
+        }
       }
+    }
 
-      // Deeper filtering and details extraction for jobs that passed basic list filters
-      const qualityJobs = [];
-      for (const job of allNewJobs) {
-        console.log(`Deep checking job ${job.id} for details...`);
+    // If no new jobs for notification, we are done
+    if (allNewJobs.length === 0) {
+      console.log(`✓ Check completed at ${new Date().toLocaleTimeString()}, found 0 new jobs`);
+      return { success: true, newJobs: 0, totalChecked: seenJobs.length };
+    }
+
+    // 3. Quiet Hours Check
+    if (settings.quietHoursEnabled && isQuietHour(settings)) {
+      console.log('Quiet Hours active, suppressing notifications/sounds');
+      return { success: true, newJobs: 0, suppressed: allNewJobs.length };
+    }
+
+    // Deeper filtering and details extraction for jobs that passed basic list filters
+    const qualityJobs = [];
+    for (const job of allNewJobs) {
+      console.log(`Deep checking job ${job.id} for details...`);
+      try {
         const projectDetails = await fetchProjectDetails(job.url);
         
         if (projectDetails) {
@@ -166,37 +231,43 @@ async function checkForNewJobs() {
           job.duration = projectDetails.duration;
           job.registrationDate = projectDetails.registrationDate;
           
-          // If budget was missing from list page, update it from project page
           if (!job.budget && projectDetails.budget) {
             job.budget = projectDetails.budget;
           }
 
-          // 2nd Pass: Re-check filters with full data (Description, Hiring Rate, Budget etc. now definitely available)
+          // 2nd Pass: Re-check filters
           if (!applyFilters(job, settings)) {
             console.log(`Filtering out job ${job.id} after deep check`);
             continue;
           }
         }
-
-        qualityJobs.push(job);
+      } catch (e) {
+        console.error(`Error deep checking job ${job.id}:`, e);
       }
 
-      if (qualityJobs.length > 0) {
-        showNotification(qualityJobs);
+      qualityJobs.push(job);
 
-        if (settings.sound) {
-          playSound();
-        }
+      // Incremental Update: Add enriched details back to recentJobs as we get them
+      const rjIdx = recentJobs.findIndex(rj => rj.id === job.id);
+      if (rjIdx !== -1) {
+        recentJobs[rjIdx] = { ...recentJobs[rjIdx], ...job };
+        chrome.storage.local.set({ recentJobs });
+      }
+    }
 
-        // Send to Telegram if configured
-        if (settings.telegramToken && settings.telegramChatId) {
-          sendTelegramNotification(qualityJobs, settings);
-        }
+    if (qualityJobs.length > 0) {
+      showNotification(qualityJobs);
+
+      if (settings.sound) {
+        playSound();
+      }
+
+      if (settings.telegramToken && settings.telegramChatId) {
+        sendTelegramNotification(qualityJobs, settings);
       }
     }
 
     console.log(`✓ Check completed at ${new Date().toLocaleTimeString()}, found ${allNewJobs.length} new jobs`);
-
     return { success: true, newJobs: allNewJobs.length, totalChecked: seenJobs.length };
 
   } catch (error) {

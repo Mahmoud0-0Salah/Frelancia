@@ -110,7 +110,8 @@ async function checkForNewJobs() {
 
     // Check each enabled category
     for (const [category, url] of Object.entries(MOSTAQL_URLS)) {
-      if (settings[category]) {
+      // Default to true if setting is missing (undefined/null)
+      if (settings[category] !== false) {
         console.log(`Checking category: ${category}`);
         const jobs = await fetchJobs(url);
         console.log(`Found ${jobs.length} total jobs in ${category}`);
@@ -188,7 +189,7 @@ async function checkForNewJobs() {
             job.communications = projectDetails.communications;
             job.duration = projectDetails.duration;
             job.registrationDate = projectDetails.registrationDate;
-            if (!job.budget && projectDetails.budget) job.budget = projectDetails.budget;
+            if ((!job.budget || job.budget === 'غير محدد') && projectDetails.budget) job.budget = projectDetails.budget;
 
             // Commit change to storage
             const rjIdx = recentJobs.findIndex(rj => rj.id === job.id);
@@ -231,7 +232,7 @@ async function checkForNewJobs() {
           job.duration = projectDetails.duration;
           job.registrationDate = projectDetails.registrationDate;
           
-          if (!job.budget && projectDetails.budget) {
+          if ((!job.budget || job.budget === 'غير محدد') && projectDetails.budget) {
             job.budget = projectDetails.budget;
           }
 
@@ -260,10 +261,6 @@ async function checkForNewJobs() {
 
       if (settings.sound) {
         playSound();
-      }
-
-      if (settings.telegramToken && settings.telegramChatId) {
-        sendTelegramNotification(qualityJobs, settings);
       }
     }
 
@@ -782,52 +779,7 @@ async function playTrackedSound() {
   }
 }
 
-// Send Telegram Message
-async function sendTelegramNotification(jobs, settings) {
-  const token = settings.telegramToken;
-  const chatId = settings.telegramChatId;
-  if (!token || !chatId) return;
-
-  const job = jobs[0];
-  let message = "";
-
-  if (jobs.length === 1) {
-    message = `<b>🔔 مشروع جديد على مستقل</b>\n\n`;
-    message += `<b>📌 العنوان:</b> ${job.title}\n`;
-    if (job.budget) message += `<b>💰 الميزانية:</b> ${job.budget}\n`;
-    if (job.duration) message += `<b>⏱️ المدة:</b> ${job.duration}\n`;
-    if (job.hiringRate) message += `<b>✅ معدل التوظيف:</b> ${job.hiringRate}\n`;
     
-    if (job.description) {
-      const shortDesc = job.description.substring(0, 300) + (job.description.length > 300 ? "..." : "");
-      message += `\n<b>📝 الوصف:</b>\n<i>${shortDesc}</i>\n`;
-    }
-    
-    message += `\n🔗 <a href="${job.url}">رابط المشروع</a>`;
-  } else {
-    message = `<b>🔔 ${jobs.length} مشاريع جديدة على مستقل</b>\n\n`;
-    jobs.forEach((j, index) => {
-      message += `${index + 1}. <a href="${j.url}">${j.title}</a> [${j.budget || "غير محدد"}]\n`;
-    });
-  }
-
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: "HTML",
-      }),
-    });
-    const result = await response.json();
-    if (!result.ok) console.error("Telegram API Error:", result);
-    else console.log(`Telegram rich message sent for job ${job.id}`);
-  } catch (error) {
-    console.error("Error sending Telegram message:", error);
-  }
-}
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -868,9 +820,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Update alarm interval
   if (message.action === 'updateAlarm') {
+    const interval = parseInt(message.interval) || 1;
     chrome.alarms.clear('checkJobs');
-    chrome.alarms.create('checkJobs', { periodInMinutes: message.interval });
-    sendResponse({ success: true });
+    chrome.alarms.create('checkJobs', { periodInMinutes: interval });
+    console.log(`Alarm 'checkJobs' updated to ${interval} minutes.`);
+    sendResponse({ success: true, interval: interval });
     return true;
   }
 

@@ -39,26 +39,29 @@ function handleAutofillSequence() {
         const maxAttempts = 20; // 10 seconds total
         
         const interval = setInterval(() => {
-            // Flexible selectors for Amount
-            const amountInput = document.querySelector('#bid__cost') || 
-                                document.querySelector('#amount') || 
-                                document.querySelector('input[name="cost"]') || 
-                                document.querySelector('input[name="amount"]');
+            // Flexible selectors for Amount - Prioritize name attribute
+            const amountInput = document.querySelector('input[name="cost"]') || 
+                                document.querySelector('input[name="amount"]') || 
+                                document.querySelector('#bid__cost') || 
+                                document.querySelector('#amount');
                                 
-            // Flexible selectors for Duration
-            const durationInput = document.querySelector('#bid__period') || 
-                                  document.querySelector('#duration') || 
-                                  document.querySelector('input[name="period"]') || 
-                                  document.querySelector('input[name="duration"]');
+            // Flexible selectors for Duration - Prioritize name attribute
+            const durationInput = document.querySelector('input[name="period"]') || 
+                                  document.querySelector('input[name="duration"]') || 
+                                  document.querySelector('#bid__period') || 
+                                  document.querySelector('#duration');
             
             if (amountInput && durationInput) {
                 clearInterval(interval);
+                // Ensure inputs are visible/interactive
+                amountInput.focus();
+                durationInput.focus();
                 fillForm(amountInput, durationInput, autofill);
             } else {
                 attempts++;
                 if (attempts >= maxAttempts) {
                     clearInterval(interval);
-                    console.log('Mostaql Ext: Bid form elements not found after 10 seconds. Selectors tried: #bid__cost, #bid__period, etc.');
+                    console.log('Mostaql Ext: Bid form elements not found after 10 seconds.');
                 }
             }
         }, 500);
@@ -68,20 +71,36 @@ function handleAutofillSequence() {
 function fillForm(amountInput, durationInput, data) {
     console.log(`Filling form: Amount=${data.amount}, Duration=${data.duration}`);
     
+    const triggerEvents = (el) => {
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+        // Some frameworks require 'blur' to commit state
+        el.dispatchEvent(new Event('blur', { bubbles: true }));
+    };
+
     // Fill values
-    if (data.amount > 0) {
-        amountInput.value = data.amount;
+    let amountToFill = data.amount;
+
+    // Fallback: If amount is missing/0, try to parse from the page directly
+    if (!amountToFill || amountToFill === 0) {
+        amountToFill = getBudgetFromPage();
+        if (amountToFill > 0) {
+            console.log('Mostaql Ext: Autofill budget fallback used:', amountToFill);
+        }
+    }
+
+    if (amountToFill > 0) {
+        amountInput.value = amountToFill;
         amountInput.classList.add('mostaql-autofilled');
-        // Trigger generic input event for page reactivity
-        amountInput.dispatchEvent(new Event('input', { bubbles: true }));
-        amountInput.dispatchEvent(new Event('change', { bubbles: true }));
+        triggerEvents(amountInput);
     }
     
     if (data.duration > 0) {
         durationInput.value = data.duration;
         durationInput.classList.add('mostaql-autofilled');
-        durationInput.dispatchEvent(new Event('input', { bubbles: true }));
-        durationInput.dispatchEvent(new Event('change', { bubbles: true }));
+        triggerEvents(durationInput);
     }
 
     // Fill Proposal content
@@ -94,8 +113,10 @@ function fillForm(amountInput, durationInput, data) {
         if (proposalTextarea) {
             proposalTextarea.value = data.proposal;
             proposalTextarea.classList.add('mostaql-autofilled');
-            proposalTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-            proposalTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+            triggerEvents(proposalTextarea);
+            
+            // Special handling for character counters on some Mostaql versions
+            proposalTextarea.focus();
         }
     }
 
@@ -103,13 +124,23 @@ function fillForm(amountInput, durationInput, data) {
     const form = document.querySelector('#add-proposal-form') || amountInput.closest('form') || amountInput.parentElement;
     if (form) {
         form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Show Toast Notification (using existing styles in content.css)
+        const toast = document.createElement('div');
+        toast.className = 'mostaql-autofill-toast';
+        toast.innerHTML = '<i class="fa fa-magic"></i> <span>تم تعبئة تفاصيل العرض تلقائياً!</span>';
+        document.body.appendChild(toast);
+        
+        // Trigger animation
+        setTimeout(() => toast.classList.add('show'), 100);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 500);
+        }, 5000);
     }
 
     // Cleanup: Remove used autofill data
     chrome.storage.local.remove(['mostaql_pending_autofill']);
-    
-    // IMPORTANT: DO NOT add auto-submission logic here. 
-    // The user explicitly requested that only the fields be filled.
 }
 
 function injectTrackButton() {
@@ -600,6 +631,25 @@ function getProjectDescription() {
         return descriptionElement.innerText.trim();
     }
     return '';
+}
+
+function getBudgetFromPage() {
+    const budgetEl = document.querySelector('[data-type="project-budget_range"]');
+    if (!budgetEl) return 0;
+    
+    // e.g. "$25.00 - $50.00"
+    const text = budgetEl.textContent.trim();
+    if (!text) return 0;
+    
+    // Extract logical numbers (handling commas)
+    const matches = text.replace(/,/g, '').match(/\d+(\.\d+)?/g);
+    if (!matches || matches.length === 0) return 0;
+    
+    // Parse floats
+    const values = matches.map(m => parseFloat(m));
+    
+    // Return Minimum
+    return Math.min(...values);
 }
 
 // --- Prompt Management ---

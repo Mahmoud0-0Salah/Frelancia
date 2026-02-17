@@ -97,8 +97,7 @@ chrome.runtime.onInstalled.addListener(() => {
   // Create alarm for checking jobs (still used for tracked projects and fallback)
   chrome.alarms.create('checkJobs', { periodInMinutes: 1 });
 
-  // Initialize SignalR connection
-  initializeSignalR();
+  // Note: SignalR will be initialized by initOnStartup() below
 });
 
 // Listen for alarm

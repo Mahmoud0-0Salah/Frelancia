@@ -18,6 +18,21 @@ class SignalRClient {
      */
     async connect() {
         try {
+            // Prevent duplicate connections
+            if (this.connection && this.isConnected) {
+                console.log('SignalR: Already connected, skipping...');
+                return;
+            }
+
+            // Close existing connection if any
+            if (this.connection) {
+                try {
+                    await this.connection.stop();
+                } catch (e) {
+                    console.warn('SignalR: Error stopping existing connection', e);
+                }
+            }
+
             console.log('SignalR: Initializing connection to', this.serverUrl);
 
             // Create connection using Microsoft SignalR library

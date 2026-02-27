@@ -394,6 +394,10 @@ function injectTrackButton() {
 }
 
 function handleTrackClick(btn) {
+    if (!isContextValid()) {
+        console.warn('Mostaql Ext: Extension context invalidated. Please refresh the page.');
+        return;
+    }
     const projectId = getProjectId();
     if (!projectId) return;
 
@@ -426,6 +430,10 @@ function setButtonUntracked(btn) {
 }
 
 function handleChatGptClick(promptId) {
+    if (!isContextValid()) {
+        console.warn('Mostaql Ext: Extension context invalidated. Please refresh the page.');
+        return;
+    }
     console.log('handleChatGptClick called with ID:', promptId);
 
     const projectData = extractProjectData(); // Gets title and url
@@ -522,6 +530,10 @@ function handleChatGptClick(promptId) {
 }
 
 function handleQuickBidClick() {
+    if (!isContextValid()) {
+        console.warn('Mostaql Ext: Extension context invalidated. Please refresh the page.');
+        return;
+    }
     console.log('Mostaql Ext: Fast Apply (Quick) clicked.');
 
     const projectId = getProjectId();
@@ -719,6 +731,10 @@ function getBudgetFromPage() {
 // --- Prompt Management ---
 
 function loadPrompts(callback) {
+    if (!isContextValid()) {
+        console.warn('Mostaql Ext: Extension context invalidated. Please refresh the page.');
+        return;
+    }
     chrome.storage.local.get(['prompts'], (data) => {
         if (chrome.runtime.lastError) {
             console.error('Error loading prompts:', chrome.runtime.lastError);
@@ -747,6 +763,10 @@ function loadPrompts(callback) {
 }
 
 function savePrompt(promptData, callback) {
+    if (!isContextValid()) {
+        console.warn('Mostaql Ext: Extension context invalidated. Please refresh the page.');
+        return;
+    }
     chrome.storage.local.get(['prompts'], (data) => {
         let prompts = data.prompts || [];
         let savedId = promptData.id;

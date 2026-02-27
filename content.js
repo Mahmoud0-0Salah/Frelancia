@@ -3,7 +3,16 @@
 // ==========================================
 
 function isContextValid() {
-    return !!chrome.runtime && !!chrome.runtime.id;
+    try {
+        // Accessing chrome.runtime.id will throw "Extension context invalidated"
+        // if the background connection is dead.
+        return typeof chrome !== 'undefined' && 
+               !!chrome.runtime && 
+               !!chrome.runtime.id && 
+               !!chrome.storage;
+    } catch (e) {
+        return false;
+    }
 }
 
 function checkForAutofill() {
@@ -514,7 +523,6 @@ function handleChatGptClick(promptId) {
                 .replace(/{client_joined}/g, projectData.clientJoined)
                 .replace(/{client_type}/g, projectData.clientType);
 
-            // Save prompt to storage for the ChatGPT content script to pick up
             // Save prompt to storage for the ChatGPT content script to pick up
             chrome.storage.local.set({ 'pendingChatGptPrompt': prompt }, () => {
                 // Open ChatGPT (or custom URL)

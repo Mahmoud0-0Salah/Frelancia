@@ -24,8 +24,7 @@ const MOSTAQL_URLS = {
   all: 'https://mostaql.com/projects?sort=latest'
 };
 
-// SignalR Configuration
-const SIGNALR_ENABLED = true; // Toggle to enable/disable SignalR
+
 
 const DEFAULT_PROMPTS = [
   {
@@ -65,8 +64,7 @@ chrome.runtime.onInstalled.addListener(() => {
         ai: true,
         all: true,
         sound: true,
-        interval: 1,
-        signalREnabled: true // Enable SignalR by default
+        interval: 1
       };
     }
 
@@ -101,49 +99,92 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // Listen for alarm
-chrome.alarms.onAlarm.addListener((alarm) => {
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'checkJobs') {
-    // Note: ASP.NET Web API jobs are now handled by SignalR (ZERO REQUESTS from extension)
-    // This alarm only checks tracked projects
-    // Other categories (AI, All) can still use polling if needed, but disabled by default for zero-request mode
+    const data = await chrome.storage.local.get(['settings']);
+    const notificationMode = (data.settings || {}).notificationMode || 'auto';
+
+    // Always check tracked projects regardless of mode
     checkTrackedProjects();
+
+    if (notificationMode === 'polling') {
+      // User chose polling only — skip SignalR entirely
+      console.log('📡 Notification mode: polling — checking for new jobs');
+      checkForNewJobs();
+
+    } else if (notificationMode === 'signalr') {
+      // User chose SignalR only — reconnect if needed, never poll
+      await initializeSignalR();
+
+    } else {
+      // Auto mode: try SignalR, fall back to polling if disconnected
+      await initializeSignalR();
+
+      const isSignalRActive = SIGNALR_AVAILABLE
+        && typeof signalRClient !== 'undefined'
+        && signalRClient.isConnected;
+
+      if (!isSignalRActive) {
+        console.log('⚠️ SignalR not connected, using polling fallback for new jobs');
+        checkForNewJobs();
+      }
+    }
+  }
+
+  // Handle SignalR reconnection alarm (created by signalr-client.js)
+  if (alarm.name === 'signalRReconnect') {
+    console.log('SignalR: Reconnect alarm fired, attempting to reconnect...');
+    if (SIGNALR_AVAILABLE && typeof signalRClient !== 'undefined') {
+      signalRClient.connect();
+    }
   }
 });
 
-// Initialize SignalR on service worker startup
+// Initialize SignalR on service worker startup (respects user mode)
 (async function initOnStartup() {
   console.log('Service worker started');
+  const data = await chrome.storage.local.get(['settings']);
+  const mode = (data.settings || {}).notificationMode || 'auto';
+
+  if (mode === 'polling') {
+    console.log('📡 Notification mode: polling — skipping SignalR init');
+    return;
+  }
   await initializeSignalR();
 })();
 
 // Initialize SignalR connection
 async function initializeSignalR() {
   try {
-    // Check if SignalR libraries are loaded
     if (!SIGNALR_AVAILABLE) {
-      console.log('⚠️ SignalR not available. Download signalr.min.js to enable real-time notifications.');
-      console.log('📥 https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js');
+      console.log('⚠️ SignalR not available. Using polling mode.');
       return;
     }
 
-    const data = await chrome.storage.local.get(['settings']);
-    const settings = data.settings || {};
-
-    if (SIGNALR_ENABLED && settings.signalREnabled !== false) {
-      console.log('Initializing SignalR connection...');
-
-      // Check if SignalR client is available
-      if (typeof signalRClient === 'undefined') {
-        console.warn('SignalR client not available. Make sure signalr-client.js is loaded.');
-        return;
-      }
-
-      // Connect to SignalR hub
-      await signalRClient.connect();
-      console.log('SignalR connection established');
-    } else {
-      console.log('SignalR disabled in settings');
+    if (typeof signalRClient === 'undefined') {
+      console.warn('SignalR client not available. Make sure signalr-client.js is loaded.');
+      return;
     }
+
+    // Skip if already connected
+    if (signalRClient.isConnected) {
+      return;
+    }
+
+    console.log('Initializing SignalR connection...');
+
+    // Register fallback callback: when max reconnect attempts fail
+    signalRClient.onFallbackActivated(() => {
+      console.warn('🔄 SignalR fallback activated — polling will handle new jobs.');
+    });
+
+    // Register reconnection callback: when SignalR comes back online
+    signalRClient.onReconnected(() => {
+      console.log('✅ SignalR reconnected — polling fallback deactivated.');
+    });
+
+    await signalRClient.connect();
+    console.log('SignalR connection established');
   } catch (error) {
     console.error('Error initializing SignalR:', error);
   }

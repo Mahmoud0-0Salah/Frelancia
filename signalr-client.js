@@ -2,6 +2,10 @@
 // SignalR Client for Real-Time Job Notifications
 // ==========================================
 
+/**
+ * Manages the SignalR connection lifecycle, including connection,
+ * reconnection via chrome.alarms, and fallback event dispatching.
+ */
 class SignalRClient {
     constructor() {
         this.connection = null;
@@ -9,22 +13,21 @@ class SignalRClient {
         this.isConnected = false;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
-        this.reconnectDelay = 5000; // 5 seconds
         this.onNewJobsCallback = null;
+        this.onFallbackActivatedCallback = null;
+        this.onReconnectedCallback = null;
     }
 
     /**
-     * Initialize and connect to the SignalR hub
+     * Initialize and connect to the SignalR hub.
      */
     async connect() {
         try {
-            // Prevent duplicate connections
             if (this.connection && this.isConnected) {
                 console.log('SignalR: Already connected, skipping...');
                 return;
             }
 
-            // Close existing connection if any
             if (this.connection) {
                 try {
                     await this.connection.stop();
@@ -35,15 +38,15 @@ class SignalRClient {
 
             console.log('SignalR: Initializing connection to', this.serverUrl);
 
-            // Create connection using Microsoft SignalR library
             this.connection = new signalR.HubConnectionBuilder()
                 .withUrl(this.serverUrl, {
                     skipNegotiation: false,
-                    transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.ServerSentEvents | signalR.HttpTransportType.LongPolling
+                    transport: signalR.HttpTransportType.WebSockets
+                        | signalR.HttpTransportType.ServerSentEvents
+                        | signalR.HttpTransportType.LongPolling
                 })
                 .withAutomaticReconnect({
                     nextRetryDelayInMilliseconds: (retryContext) => {
-                        // Exponential backoff: 0s, 2s, 10s, 30s, 60s, 60s...
                         if (retryContext.elapsedMilliseconds < 60000) {
                             return Math.min(1000 * Math.pow(2, retryContext.previousRetryCount), 60000);
                         }
@@ -53,47 +56,50 @@ class SignalRClient {
                 .configureLogging(signalR.LogLevel.Information)
                 .build();
 
-            // Register event handlers
             this.registerEventHandlers();
 
-            // Start the connection
             await this.connection.start();
             this.isConnected = true;
             this.reconnectAttempts = 0;
             console.log('SignalR: Connected successfully');
 
-            // Store connection status
-            await chrome.storage.local.set({ signalRConnected: true });
+            await chrome.storage.local.set({
+                signalRConnected: true,
+                signalRFallbackActive: false
+            });
+
+            if (this.onReconnectedCallback) {
+                this.onReconnectedCallback();
+            }
 
         } catch (error) {
             console.error('SignalR: Connection failed', error);
             this.isConnected = false;
             await chrome.storage.local.set({ signalRConnected: false });
-
-            // Attempt to reconnect
             this.scheduleReconnect();
         }
     }
 
     /**
-     * Register all SignalR event handlers
+     * Register all SignalR event handlers.
      */
     registerEventHandlers() {
-        // Handle successful connection confirmation
         this.connection.on('Connected', (data) => {
             console.log('SignalR: Connection confirmed', data);
         });
 
-        // Handle new job notifications from server
         this.connection.on('NewJobsDetected', async (data) => {
             console.log('SignalR: New jobs detected', data);
 
+            if (!data || !Array.isArray(data.jobs)) {
+                console.warn('SignalR: Invalid payload received, expected data.jobs array');
+                return;
+            }
+
             try {
-                // Call the registered callback to process new jobs
                 if (this.onNewJobsCallback) {
                     await this.onNewJobsCallback(data.jobs);
                 } else {
-                    // Fallback: Process jobs using default handler
                     await this.handleNewJobs(data.jobs);
                 }
             } catch (error) {
@@ -101,42 +107,44 @@ class SignalRClient {
             }
         });
 
-        // Handle connection closed
         this.connection.onclose((error) => {
             console.log('SignalR: Connection closed', error);
             this.isConnected = false;
             chrome.storage.local.set({ signalRConnected: false });
         });
 
-        // Handle reconnecting
         this.connection.onreconnecting((error) => {
             console.log('SignalR: Reconnecting...', error);
             this.isConnected = false;
             chrome.storage.local.set({ signalRConnected: false });
         });
 
-        // Handle reconnected
         this.connection.onreconnected((connectionId) => {
             console.log('SignalR: Reconnected', connectionId);
             this.isConnected = true;
-            chrome.storage.local.set({ signalRConnected: true });
+            chrome.storage.local.set({
+                signalRConnected: true,
+                signalRFallbackActive: false
+            });
+
+            if (this.onReconnectedCallback) {
+                this.onReconnectedCallback();
+            }
         });
     }
 
     /**
-     * Default handler for new jobs (NO HTTP REQUESTS - just process received data)
+     * Default handler for new jobs (NO HTTP REQUESTS - just process received data).
      */
     async handleNewJobs(jobs) {
         console.log(`SignalR: Processing ${jobs.length} new job(s) [ZERO HTTP REQUESTS]`);
 
-        // Get current settings and seen jobs
         const data = await chrome.storage.local.get(['seenJobs', 'recentJobs', 'stats', 'settings']);
         let seenJobs = data.seenJobs || [];
         let recentJobs = data.recentJobs || [];
         let stats = data.stats || { todayCount: 0, todayDate: new Date().toDateString() };
         const settings = data.settings || {};
 
-        // Reset today count if new day
         if (stats.todayDate !== new Date().toDateString()) {
             stats.todayCount = 0;
             stats.todayDate = new Date().toDateString();
@@ -145,22 +153,18 @@ class SignalRClient {
         const validJobs = [];
 
         for (const job of jobs) {
-            // Skip if already seen
             if (seenJobs.includes(job.id)) {
                 console.log(`SignalR: Skipping already seen job ${job.id}`);
                 continue;
             }
 
-            // Add to seen list
             seenJobs.push(job.id);
 
-            // Server already sent complete data, just apply filters
             if (!applyFilters(job, settings)) {
                 console.log(`SignalR: Filtering out job ${job.id}`);
                 continue;
             }
 
-            // Add to recent jobs with ALL data from server
             const existingIdx = recentJobs.findIndex(rj => rj.id === job.id);
             if (existingIdx !== -1) {
                 recentJobs[existingIdx] = { ...recentJobs[existingIdx], ...job };
@@ -171,16 +175,13 @@ class SignalRClient {
             validJobs.push(job);
         }
 
-        // Update storage
         stats.lastCheck = new Date().toISOString();
         stats.todayCount += validJobs.length;
 
-        // Keep only last 500 seen jobs
         if (seenJobs.length > 500) {
             seenJobs = seenJobs.slice(-500);
         }
 
-        // Keep only last 50 recent jobs
         recentJobs.sort((a, b) => {
             const idA = parseInt(a.id) || 0;
             const idB = parseInt(b.id) || 0;
@@ -188,20 +189,15 @@ class SignalRClient {
         });
         recentJobs = recentJobs.slice(0, 50);
 
-        // Save to storage
         await chrome.storage.local.set({ seenJobs, stats, recentJobs });
 
-        // Show notifications if we have valid jobs
         if (validJobs.length > 0) {
-            // Check quiet hours
             if (settings.quietHoursEnabled && isQuietHour(settings)) {
                 console.log('SignalR: Quiet Hours active, suppressing notifications');
                 return;
             }
 
             console.log(`SignalR: Showing notifications for ${validJobs.length} job(s) [NO HTTP REQUESTS MADE]`);
-
-            // Show notifications (using existing notification logic)
             showNotification(validJobs);
 
             if (settings.sound) {
@@ -213,32 +209,50 @@ class SignalRClient {
     }
 
     /**
-     * Register a callback for when new jobs are received
+     * Register a callback for when new jobs are received.
      */
     onNewJobs(callback) {
         this.onNewJobsCallback = callback;
     }
 
     /**
-     * Schedule a reconnection attempt
+     * Register a callback for when fallback mode is activated.
+     */
+    onFallbackActivated(callback) {
+        this.onFallbackActivatedCallback = callback;
+    }
+
+    /**
+     * Register a callback for when SignalR reconnects successfully.
+     */
+    onReconnected(callback) {
+        this.onReconnectedCallback = callback;
+    }
+
+    /**
+     * Schedule a reconnection attempt using chrome.alarms (MV3-safe).
+     * setTimeout is unreliable in service workers that can be suspended.
      */
     scheduleReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.error('SignalR: Max reconnect attempts reached. Please restart the extension.');
+            console.error('SignalR: Max reconnect attempts reached. Activating polling fallback.');
+            chrome.storage.local.set({ signalRFallbackActive: true });
+
+            if (this.onFallbackActivatedCallback) {
+                this.onFallbackActivatedCallback();
+            }
             return;
         }
 
         this.reconnectAttempts++;
-        console.log(`SignalR: Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectDelay}ms`);
+        const delayMinutes = Math.max(this.reconnectAttempts * 0.5, 0.5);
+        console.log(`SignalR: Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delayMinutes} min`);
 
-        setTimeout(() => {
-            console.log('SignalR: Attempting to reconnect...');
-            this.connect();
-        }, this.reconnectDelay);
+        chrome.alarms.create('signalRReconnect', { delayInMinutes: delayMinutes });
     }
 
     /**
-     * Disconnect from the hub
+     * Disconnect from the hub.
      */
     async disconnect() {
         if (this.connection) {
@@ -254,7 +268,7 @@ class SignalRClient {
     }
 
     /**
-     * Send a ping to the server (optional - for testing)
+     * Send a ping to the server (for testing).
      */
     async ping() {
         if (this.isConnected && this.connection) {
@@ -268,7 +282,7 @@ class SignalRClient {
     }
 
     /**
-     * Get connection status
+     * Get connection status.
      */
     getStatus() {
         return {
@@ -276,26 +290,6 @@ class SignalRClient {
             state: this.connection?.state || 'Disconnected',
             reconnectAttempts: this.reconnectAttempts
         };
-    }
-}
-
-// Helper function for quiet hours (imported from background.js logic)
-function isQuietHour(settings) {
-    if (!settings.quietHoursStart || !settings.quietHoursEnd) return false;
-
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-    const [startH, startM] = settings.quietHoursStart.split(':').map(Number);
-    const [endH, endM] = settings.quietHoursEnd.split(':').map(Number);
-
-    const startMinutes = startH * 60 + startM;
-    const endMinutes = endH * 60 + endM;
-
-    if (startMinutes < endMinutes) {
-        return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
-    } else {
-        return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
     }
 }
 

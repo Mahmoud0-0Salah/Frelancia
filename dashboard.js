@@ -80,7 +80,13 @@ function loadData() {
         }
         
         // Render Project List using full objects
-        renderRecentProjects(data.recentJobs || []);
+        // Tracked (watched) projects panel
+        chrome.storage.local.get(['trackedProjects'], (td) => {
+            const tracked = td.trackedProjects || {};
+            const trackedList = Object.values(tracked)
+                .sort((a, b) => (b.lastChecked || '').localeCompare(a.lastChecked || ''));
+            renderTrackedProjects(trackedList);
+        });
 
         // Settings / Filters
         const s = data.settings || {};
@@ -116,6 +122,55 @@ function loadData() {
     });
 }
 
+// --- Render Tracked (Watched) Projects ---
+function renderTrackedProjects(jobs) {
+    const list = document.getElementById('recentProjectsList');
+    if (!list) return;
+
+    if (jobs.length === 0) {
+        list.innerHTML = '<p class="help-text" style="text-align: center; padding: 40px;">لا توجد مشاريع مراقبة. افتح أي مشروع على مستقل واضغط <strong>مراقبة</strong> لإضافته هنا.</p>';
+        return;
+    }
+
+    list.innerHTML = jobs.slice(0, 7).map(job => {
+        const budget   = job.budget   || 'غير محدد';
+        const duration = job.duration || '';
+        const poster   = job.clientName || '';
+        const timeAgo  = job.publishDate || '';
+        const bidsText = job.communications ? job.communications + ' تواصل' : '';
+        const status   = job.status || 'مفتوح';
+
+        let statusClass = 'mj-status-open';
+        if (status.includes('تنفيذ') || status.includes('جارٍ')) statusClass = 'mj-status-processing';
+        if (status.includes('مغلق') || status.includes('مكتمل') || status.includes('ملغى')) statusClass = 'mj-status-closed';
+
+        return `
+            <div class="mj-project-item">
+                <h5 class="mj-project-title">
+                    <a href="${job.url}" target="_blank">${job.title || 'بدون عنوان'}</a>
+                    <span class="mj-status-badge ${statusClass}">${status}</span>
+                </h5>
+                <ul class="mj-project-meta">
+                    ${poster   ? `<li><i class="fas fa-user"></i> ${poster}</li>` : ''}
+                    ${timeAgo  ? `<li><i class="fas fa-clock"></i> ${timeAgo}</li>` : ''}
+                    ${bidsText ? `<li><i class="fas fa-handshake"></i> ${bidsText}</li>` : ''}
+                    ${budget !== 'غير محدد' ? `<li><i class="fas fa-dollar-sign"></i> ${budget}</li>` : ''}
+                </ul>
+                <div class="mj-project-actions">
+                    <a href="${job.url}" target="_blank" class="btn-view-project btn-apply-autofill"
+                       data-id="${job.id}"
+                       data-budget="${budget}"
+                       data-duration="${duration}">
+                        <i class="fas fa-paper-plane"></i> قدّم الآن
+                    </a>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    setupAutofillListeners();
+}
+
 // --- Render Functions ---
 function renderRecentProjects(jobs) {
     const list = document.getElementById('recentProjectsList');
@@ -126,43 +181,38 @@ function renderRecentProjects(jobs) {
         return;
     }
 
-    // Strictly show the last 10 posted projects
-    const recent = jobs.slice(0, 10);
+    // Show last 7 monitored projects in Mostaql-style listing
+    const recent = jobs.slice(0, 7);
     list.innerHTML = recent.map(job => {
         const budget = job.budget || 'غير محدد';
-        const hiringRate = job.hiringRate || 'غير محدد';
-        const communications = job.communications || '0';
-        const status = job.status || 'مفتوح';
         const duration = job.duration || '';
-        
-        let statusClass = 'status-open';
-        if (status.includes('تنفيذ') || status.includes('عمل')) statusClass = 'status-processing';
-        if (status.includes('مغلق') || status.includes('مكتمل')) statusClass = 'status-closed';
+        const poster = job.poster || '';
+        const timeAgo = job.time || '';
+        const bidsText = job.bidsText || (job.communications ? job.communications + ' تواصل' : '');
+        const status = job.status || 'مفتوح';
+
+        let statusClass = 'mj-status-open';
+        if (status.includes('تنفيذ') || status.includes('عمل')) statusClass = 'mj-status-processing';
+        if (status.includes('مغلق') || status.includes('مكتمل')) statusClass = 'mj-status-closed';
 
         return `
-            <div class="project-item">
-                <div class="project-header">
-                    <a href="${job.url}" target="_blank" class="project-title">${job.title || 'بدون عنوان'}</a>
-                    <span class="status-badge ${statusClass}">${status}</span>
-                </div>
-                
-                <div class="project-footer">
-                    <div class="project-stats">
-                        <div class="stat-inline">
-                            <i class="fas fa-user-check"></i>
-                            <span>التوظيف: ${hiringRate}</span>
-                        </div>
-                        <div class="stat-inline">
-                            <i class="fas fa-comments"></i>
-                            <span>التواصلات: ${communications}</span>
-                        </div>
-                    </div>
-                    <a href="${job.url}" target="_blank" class="btn-view-project btn-apply-autofill" 
-                       data-id="${job.id}" 
-                       data-budget="${budget}" 
+            <div class="mj-project-item">
+                <h5 class="mj-project-title">
+                    <a href="${job.url}" target="_blank">${job.title || 'بدون عنوان'}</a>
+                    <span class="mj-status-badge ${statusClass}">${status}</span>
+                </h5>
+                <ul class="mj-project-meta">
+                    ${poster ? `<li><i class="fas fa-user"></i> ${poster}</li>` : ''}
+                    ${timeAgo ? `<li><i class="fas fa-clock"></i> ${timeAgo}</li>` : ''}
+                    ${bidsText ? `<li><i class="fas fa-file-signature"></i> ${bidsText}</li>` : ''}
+                    ${budget !== 'غير محدد' ? `<li><i class="fas fa-dollar-sign"></i> ${budget}</li>` : ''}
+                </ul>
+                <div class="mj-project-actions">
+                    <a href="${job.url}" target="_blank" class="btn-view-project btn-apply-autofill"
+                       data-id="${job.id}"
+                       data-budget="${budget}"
                        data-duration="${duration}">
-                        <span>قدّم الآن</span>
-                        <i class="fas fa-chevron-left" style="margin-right: 8px; font-size: 10px;"></i>
+                        <i class="fas fa-paper-plane"></i> قدّم الآن
                     </a>
                 </div>
             </div>

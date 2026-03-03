@@ -26,16 +26,44 @@ function parseMostaqlHTML(html) {
     const doc = parser.parseFromString(html, 'text/html');
     const jobs = [];
     const seenIds = new Set();
-    
+
+    // Strategy 0: Mostaql list-group-item layout (dashboard/projects page)
+    const listItems = doc.querySelectorAll('.list-group-item');
+    listItems.forEach(item => {
+        const link = item.querySelector('a[href*="/project/"]');
+        if (!link) return;
+        const href = link.getAttribute('href');
+        const idMatch = href.match(/\/project\/(\d+)/);
+        if (!idMatch) return;
+        const id = idMatch[1];
+        if (seenIds.has(id)) return;
+        seenIds.add(id);
+
+        const title = link.textContent.trim();
+        const url = href.startsWith('http') ? href : 'https://mostaql.com' + href;
+
+        // Client/poster name (element with fa-user icon)
+        const userIcon = item.querySelector('.fa-user');
+        const poster = userIcon ? userIcon.parentElement.textContent.replace(/\s+/g, ' ').trim() : '';
+
+        // Time ago
+        const timeEl = item.querySelector('time');
+        const time = timeEl ? timeEl.textContent.replace(/\s+/g, ' ').trim() : '';
+        const postedAt = timeEl ? (timeEl.getAttribute('datetime') || '') : '';
+
+        // Bids count (third li in .project__meta)
+        const metaItems = item.querySelectorAll('.project__meta li');
+        const bidsText = metaItems.length >= 3 ? metaItems[2].textContent.replace(/\s+/g, ' ').trim() : '';
+
+        jobs.push({ id, title, url, poster, time, postedAt, bidsText, budget: 'غير محدد' });
+    });
+
     // Strategy 1: Table Rows (Classic View)
-    // tr.project-row or just tr with a project link
     const rows = doc.querySelectorAll('tr');
-    
     rows.forEach(row => {
         const link = row.querySelector('a[href*="/project/"]');
         if (link) {
             const href = link.getAttribute('href');
-            // Extract ID from URL
             const idMatch = href.match(/\/project\/(\d+)/);
             if (idMatch) {
                 const id = idMatch[1];
@@ -43,18 +71,11 @@ function parseMostaqlHTML(html) {
                     const title = link.textContent.trim();
                     const budgetEl = row.querySelector('td:nth-child(4), [class*="budget"]');
                     const budget = budgetEl ? budgetEl.textContent.trim() : 'غير محدد';
-                    
                     const timeEl = row.querySelector('td:nth-child(5n), .timeSince, [class*="date"]');
                     const time = timeEl ? timeEl.textContent.trim() : '';
-
                     seenIds.add(id);
-                    jobs.push({
-                        id: id,
-                        title: title,
-                        budget: budget,
-                        time: time,
-                        url: href.startsWith('http') ? href : 'https://mostaql.com' + href
-                    });
+                    jobs.push({ id, title, budget, time, postedAt: '', poster: '', bidsText: '',
+                        url: href.startsWith('http') ? href : 'https://mostaql.com' + href });
                 }
             }
         }
@@ -72,20 +93,15 @@ function parseMostaqlHTML(html) {
                 if (!seenIds.has(id)) {
                     seenIds.add(id);
                     const timeEl = card.querySelector('.timeSince, [class*="date"]');
-                    jobs.push({
-                        id: id,
-                        title: link.textContent.trim(),
-                        budget: 'غير محدد',
-                        time: timeEl ? timeEl.textContent.trim() : '',
-                        url: href.startsWith('http') ? href : 'https://mostaql.com' + href
-                    });
+                    jobs.push({ id, title: link.textContent.trim(), budget: 'غير محدد',
+                        time: timeEl ? timeEl.textContent.trim() : '', postedAt: '', poster: '', bidsText: '',
+                        url: href.startsWith('http') ? href : 'https://mostaql.com' + href });
                 }
             }
         }
     });
 
     // Strategy 3: Fallback - All Links
-    // If we missed everything, just grab anything that looks like a project link
     if (jobs.length === 0) {
         const allLinks = doc.querySelectorAll('a[href*="/project/"]');
         allLinks.forEach(link => {
@@ -93,16 +109,11 @@ function parseMostaqlHTML(html) {
             const idMatch = href.match(/\/project\/(\d+)/);
             if (idMatch) {
                 const id = idMatch[1];
-                // Ensure text is long enough to be a title, not an icon or "Details"
                 const text = link.innerText.trim();
                 if (!seenIds.has(id) && text.length > 5) {
                     seenIds.add(id);
-                    jobs.push({
-                        id: id,
-                        title: text,
-                        budget: '',
-                        url: href.startsWith('http') ? href : 'https://mostaql.com' + href
-                    });
+                    jobs.push({ id, title: text, budget: '', postedAt: '', poster: '', bidsText: '',
+                        url: href.startsWith('http') ? href : 'https://mostaql.com' + href });
                 }
             }
         });

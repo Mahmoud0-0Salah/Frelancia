@@ -931,6 +931,7 @@ function runInjectors() {
 
     if (page === 'home') {
         injectDashboardStats();
+        injectMonitoredProjects();
     }
 
     if (page === 'profile') {
@@ -1287,6 +1288,89 @@ function injectDashboardStats() {
 
     // Auto-load on inject
     loadStats();
+}
+
+// Inject monitored projects panel into mostaql.com homepage
+function injectMonitoredProjects() {
+    const anchorPanel = document.querySelector('#dashboard__latest-published-panel');
+    if (!anchorPanel) return;
+
+    // Guard must happen synchronously BEFORE any async call
+    if (document.getElementById('frelancia-monitored-panel')) return;
+    if (!isContextValid()) return;
+
+    // Insert the panel shell immediately so re-entrant calls are blocked
+    const panel = document.createElement('div');
+    panel.id = 'frelancia-monitored-panel';
+    panel.className = 'panel panel-default mrg--bm';
+    panel.innerHTML = `
+        <div class="heada">
+            <h2 class="heada__title pull-right vcenter">
+                <a href="javascript:void(0)" class="dsp--b clr-gray-dark" style="cursor:default;">
+                    <i class="fa fa-fw fa-eye" style="color:#2386c8;"></i>
+                    المشاريع المراقبة
+                    <span style="font-size:12px; font-weight:400; color:#999; margin-right:8px;">آخر 7 مشاريع</span>
+                </a>
+            </h2>
+            <div class="pull-left">
+                <button id="frelancia-refresh-monitored" class="btn btn-xs btn-default" style="margin-top:12px;">
+                    <i class="fa fa-refresh"></i>
+                </button>
+            </div>
+        </div>
+        <div class="carda__body collapse in panel-listing">
+            <div class="row panel-list" id="frelancia-monitored-list">
+                <div style="padding:20px; text-align:center; color:#999;"><i class="fa fa-spinner fa-spin"></i></div>
+            </div>
+        </div>`;
+
+    anchorPanel.insertAdjacentElement('afterend', panel);
+
+    // Now load data and fill content
+    chrome.storage.local.get(['trackedProjects'], (data) => {
+        if (chrome.runtime.lastError) return;
+        const listEl = document.getElementById('frelancia-monitored-list');
+        if (!listEl) return;
+
+        const tracked = data.trackedProjects || {};
+        const jobs = Object.values(tracked)
+            .sort((a, b) => (b.lastChecked || '').localeCompare(a.lastChecked || ''))
+            .slice(0, 7);
+
+        if (jobs.length === 0) {
+            listEl.innerHTML = `<div class="list-group-item mrg--an" style="padding:20px; text-align:center; color:#888;">لا توجد مشاريع مراقبة. افتح أي مشروع واضغط <strong>مراقبة</strong> لإضافته.</div>`;
+            return;
+        }
+
+        listEl.innerHTML = jobs.map(job => {
+            const poster  = job.clientName ? `<span class="text-muted"><i class="fa fa-fw fa-user"></i> ${job.clientName}</span>` : '';
+            const timeAgo = job.publishDate ? `<span class="text-muted"><i class="fa fa-fw fa-clock-o"></i> ${job.publishDate}</span>` : '';
+            const bids    = job.communications ? `<span class="text-muted"><i class="fa fa-fw fa-handshake-o"></i> ${job.communications} تواصل</span>` : '';
+            const budget  = (job.budget && job.budget !== 'غير محدد') ? `<span class="text-muted"><i class="fa fa-fw fa-money"></i> ${job.budget}</span>` : '';
+            const status  = job.status || 'مفتوح';
+
+            let statusCls = 'label-prj-open';
+            if (status.includes('تنفيذ') || status.includes('جارٍ')) statusCls = 'label-prj-processing';
+            if (status.includes('مغلق') || status.includes('مكتمل') || status.includes('ملغى')) statusCls = 'label-prj-closed';
+
+            const metaItems = [poster, timeAgo, bids, budget].filter(Boolean).map(m => `<li>${m}</li>`).join('');
+
+            return `
+            <div class="list-group-item brd--b mrg--an">
+                <h5 class="listing__title project__title mrg--bt-reset">
+                    <a href="${job.url}" target="_blank">${job.title || 'بدون عنوان'}</a>
+                    <span class="label ${statusCls}" style="font-size:10px; margin-right:6px;">${status}</span>
+                </h5>
+                ${metaItems ? `<ul class="project__meta list-meta text-zeta clr-gray-dark">${metaItems}</ul>` : ''}
+            </div>`;
+        }).join('');
+    });
+
+    // Refresh button
+    panel.querySelector('#frelancia-refresh-monitored').addEventListener('click', () => {
+        panel.remove();
+        injectMonitoredProjects();
+    });
 }
 
 // Example: profile page injector

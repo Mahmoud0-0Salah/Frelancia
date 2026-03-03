@@ -18,7 +18,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://mostaql.com/project/*"
+        "https://mostaql.com/*"
       ],
       "js": [
         "content.js"

@@ -1303,7 +1303,7 @@ function injectDashboardStats() {
                 if (i === 0) {
                     countdownsHtml += `
                     <p class="text-muted mostaql-stats-header">
-                        <i class="fa fa-refresh"></i> عروض تسترد قريباً
+                        <i class="fa fa-refresh"></i> حالة العروض اليومية
                     </p>
                     `;
                 } else {

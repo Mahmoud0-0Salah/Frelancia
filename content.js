@@ -1364,7 +1364,7 @@ function injectDashboardStats() {
         const firstNativeRow = target.querySelector('.row');
         if (firstNativeRow) {
             firstNativeRow.insertAdjacentHTML('beforebegin', `
-                <div class="row content-middle-sm" id="mostaql-bid-stats" style="margin-bottom:20px;">
+                <div class="row" id="mostaql-bid-stats" style="margin-bottom:20px; display: flex; align-items: flex-start;">
                     ${overallColumn}
                     ${last30Column}
                     ${todayColumn}
@@ -1380,7 +1380,7 @@ function injectDashboardStats() {
         } else {
             // Fallback
             box.insertAdjacentHTML('afterend', `
-                <div class="row content-middle-sm" id="mostaql-bid-stats">
+                <div class="row" id="mostaql-bid-stats" style="display: flex; align-items: flex-start;">
                     ${overallColumn}
                     ${last30Column}
                     ${todayColumn}

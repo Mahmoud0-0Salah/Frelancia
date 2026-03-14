@@ -1748,6 +1748,30 @@ async function executeExportAll() {
                 }
             });
 
+            const videoElements = msg.querySelectorAll('video');
+            videoElements.forEach(video => {
+                let bestUrl = video.src;
+                if (!bestUrl) {
+                    const sources = Array.from(video.querySelectorAll('source'));
+                    // Prioritize MP4 for better compatibility, then fallback to first available source
+                    const mp4Source = sources.find(s => (s.type && s.type.includes('mp4')) || (s.src && s.src.includes('.mp4')));
+                    const anySource = mp4Source || sources[0];
+                    if (anySource && anySource.src) {
+                        bestUrl = anySource.src;
+                    }
+                }
+                
+                if (bestUrl) {
+                    const filename = getFilenameFromUrl(bestUrl);
+                    if (!attachments.find(a => a.url === bestUrl)) {
+                        attachments.push({ url: bestUrl, name: filename });
+                    }
+                    if (!mediaUrls.find(m => m.url === bestUrl)) {
+                        mediaUrls.push({ url: bestUrl, name: filename });
+                    }
+                }
+            });
+
             if (text || attachments.length > 0) {
                 chatData.push({
                     senderName,
@@ -2055,10 +2079,12 @@ async function executeExportAll() {
                                 ${m.attachments.map(a => {
                                     const isImg = a.name.match(/\.(jpg|jpeg|png|gif|webp)$/i);
                                     const isAudio = a.name.match(/\.(mp3|wav|ogg|m4a|aac)$/i);
+                                    const isVideo = a.name.match(/\.(mp4|webm|ogg)$/i);
                                     return `
                                         <div class="attachment-preview">
                                             ${isImg ? `<img src="${a.url}" alt="${a.name}" onerror="this.style.display='none'">` : ''}
                                             ${isAudio ? `<audio controls src="${a.url}" style="width: 100%; margin-top: 10px; border-radius: 8px; background: #f1f5f9;"></audio>` : ''}
+                                            ${isVideo ? `<video controls src="${a.url}" style="width: 100%; margin-top: 10px; border-radius: 8px; background: #000; max-height: 400px;"></video>` : ''}
                                             <a href="${a.url}" target="_blank" class="attach-link">
                                                 <i class="fa fa-paperclip"></i> ${a.name}
                                             </a>

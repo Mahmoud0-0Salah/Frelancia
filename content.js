@@ -949,6 +949,7 @@ function runInjectors() {
 
     if (page === 'project') {
         injectTrackButton();
+        injectProjectExporter();
         checkForAutofill();
     }
 
@@ -1597,7 +1598,7 @@ function injectMessageExporter() {
 
     const btn = document.createElement('button');
     btn.id = 'mostaql-export-chat-btn';
-    btn.className = 'btn btn-primary btn-block'; // btn-block to make it full width if desired, or just btn-primary
+    btn.className = 'btn btn-primary btn-block'; // btn-block to make it full width
     btn.style.marginTop = '15px';
     btn.style.marginBottom = '15px';
     btn.innerHTML = '<i class="fa fa-download"></i> تصدير';
@@ -1608,7 +1609,7 @@ function injectMessageExporter() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري التصدير...';
         try {
-            await executeChatExport();
+            await executeExportAll();
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalHtml;
@@ -1618,114 +1619,133 @@ function injectMessageExporter() {
     targetPanel.after(btn);
 }
 
+function injectProjectExporter() {
+    // We want to add the button in the sidebar container created by injectTrackButton
+    const buttonContainer = document.getElementById('mostaql-ext-btn-container');
+    if (!buttonContainer) return;
 
-async function executeChatExport() {
-    console.log("Starting chat export...");
+    if (document.getElementById('mostaql-export-project-btn')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'mostaql-export-project-btn';
+    btn.className = 'btn btn-primary';
+    btn.style.marginRight = '8px'; // Spacing from Track button
+    btn.innerHTML = '<i class="fa fa-download"></i> <span class="action-text">تصدير</span>';
+    btn.title = 'تصدير تفاصيل المشروع والعروض';
     
-    // Detect Identity based on the very first message found
+    btn.addEventListener('click', async () => {
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+        try {
+            await executeExportAll();
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    });
+
+    buttonContainer.appendChild(btn);
+}
+
+
+async function executeExportAll() {
+    console.log("Starting export...");
+    
+    // Detect Identity based on the very first message found (if any)
     const messages = document.querySelectorAll("#chat-root [id^='message-'], .message-item");
-    if (messages.length === 0) {
-        alert("لم يتم العثور على رسائل في هذه الصفحة.");
-        return;
-    }
-
-    const firstMsgNameEl = messages[0].querySelector('.metas-title');
-    const firstSenderName = firstMsgNameEl ? firstMsgNameEl.innerText.trim() : "Other";
-
-    let chatData = [];
-    let lastKnownSender = {
-        name: firstSenderName,
-        isUs: false,
-        avatar: ""
-    };
     
+    let chatData = [];
     let textOutput = "تصدير محادثة مستقل\n\n";
     let textOutputNoTime = "";
     let mediaUrls = [];
 
-    messages.forEach((msg) => {
-        const nameEl = msg.querySelector('.metas-title');
-        const timeEl = msg.querySelector('time');
-        const avatarEl = msg.querySelector('img.uavatar') || msg.querySelector('img:not([class="meta-icon"])'); // fallback for avatar
+    if (messages.length > 0) {
+        const firstMsgNameEl = messages[0].querySelector('.metas-title');
+        const firstSenderName = firstMsgNameEl ? firstMsgNameEl.innerText.trim() : "Other";
 
-        let currentName = nameEl ? nameEl.innerText.trim() : null;
-        let currentTime = timeEl ? (timeEl.getAttribute('title') || timeEl.innerText.trim()) : null;
-        let currentAvatar = avatarEl ? avatarEl.src : null;
-
-        let isUs, senderName, displayAvatar;
-
-        if (currentName) {
-            isUs = (currentName !== firstSenderName);
-            senderName = currentName;
-            displayAvatar = currentAvatar;
-
-            lastKnownSender = { name: senderName, isUs: isUs, avatar: displayAvatar };
-        } else {
-            isUs = lastKnownSender.isUs;
-            senderName = lastKnownSender.name;
-            displayAvatar = lastKnownSender.avatar;
-        }
-
-        const textEl = msg.querySelector('.content p, .text-wrapper-div p, p, .text-wrapper-div');
-        const text = textEl ? textEl.innerText.trim() : "";
-
-        const contentImgs = msg.querySelectorAll('.content img, .message-item-container img:not(.icon.loaded img)');
-        let attachments = [];
+        let lastKnownSender = {
+            name: firstSenderName,
+            isUs: false,
+            avatar: ""
+        };
         
-        const getFilenameFromUrl = (urlStr) => {
-            try {
-                // Example URL: https://mostaql.com/file/3617696/69b43073dc41a/2026-03-13-17.42.38.png
-                const u = new URL(urlStr);
-                const parts = u.pathname.split('/');
-                return parts.pop() || 'media_file';
-            } catch {
-                return 'media_file';
+        messages.forEach((msg) => {
+            const nameEl = msg.querySelector('.metas-title');
+            const timeEl = msg.querySelector('time');
+            const avatarEl = msg.querySelector('img.uavatar') || msg.querySelector('img:not([class="meta-icon"])'); // fallback for avatar
+
+            let currentName = nameEl ? nameEl.innerText.trim() : null;
+            let currentTime = timeEl ? (timeEl.getAttribute('title') || timeEl.innerText.trim()) : null;
+            let currentAvatar = avatarEl ? avatarEl.src : null;
+
+            let isUs, senderName, displayAvatar;
+
+            if (currentName) {
+                isUs = (currentName !== firstSenderName);
+                senderName = currentName;
+                displayAvatar = currentAvatar;
+
+                lastKnownSender = { name: senderName, isUs: isUs, avatar: displayAvatar };
+            } else {
+                isUs = lastKnownSender.isUs;
+                senderName = lastKnownSender.name;
+                displayAvatar = lastKnownSender.avatar;
             }
-        };
 
-        const processLink = (linkNode) => {
-             const url = linkNode.href;
-             let filename = linkNode.innerText.trim();
-             // If the inner text is just an empty string or whitespace (typical for image elements inside links)
-             if (!filename || filename === "") {
-                 filename = getFilenameFromUrl(url);
-             }
-             if (!attachments.find(a => a.url === url)) {
-                 attachments.push({ url, name: filename });
-             }
-             if (!mediaUrls.find(m => m.url === url)) {
-                 mediaUrls.push({ url, name: filename });
-             }
-        };
+            const textEl = msg.querySelector('.content p, .text-wrapper-div p, p, .text-wrapper-div');
+            const text = textEl ? textEl.innerText.trim() : "";
 
-        // Include actual images/videos
-        const mediaLinks = msg.querySelectorAll('a[href*="/file/"]');
-        mediaLinks.forEach(processLink);
-        
-        // Also capture images presented inside .single-image-container 
-        const imageElements = msg.querySelectorAll('.single-image-container a[href]');
-        imageElements.forEach(processLink);
+            const contentImgs = msg.querySelectorAll('.content img, .message-item-container img:not(.icon.loaded img)');
+            let attachments = [];
+            
+            const getFilenameFromUrl = (urlStr) => {
+                try {
+                    const u = new URL(urlStr);
+                    const parts = u.pathname.split('/');
+                    return parts.pop() || 'media_file';
+                } catch {
+                    return 'media_file';
+                }
+            };
 
-        if (text || attachments.length > 0) {
-            chatData.push({
-                senderName,
-                isUs,
-                text,
-                time: currentTime || "",
-                avatar: displayAvatar,
-                attachments
-            });
+            const processLink = (linkNode) => {
+                 const url = linkNode.href;
+                 let filename = linkNode.innerText.trim();
+                 if (!filename || filename === "") {
+                     filename = getFilenameFromUrl(url);
+                 }
+                 if (!attachments.find(a => a.url === url)) {
+                     attachments.push({ url, name: filename });
+                 }
+                 if (!mediaUrls.find(m => m.url === url)) {
+                     mediaUrls.push({ url, name: filename });
+                 }
+            };
+
+            const mediaLinks = msg.querySelectorAll('a[href*="/file/"]');
+            mediaLinks.forEach(processLink);
             
-            const messageText = text.trim();
-            const attachmentsSection = attachments.length > 0 ? `\n[مرفقات: ${attachments.map(a => a.name).join(', ')}]` : '';
-            
-            // Log with timestamp
-            textOutput += `[${currentTime || ''}] ${senderName}:\n${messageText}${attachmentsSection}\n\n`;
-            
-            // Log without timestamp
-            textOutputNoTime += `${senderName}:\n${messageText}${attachmentsSection}\n\n`;
-        }
-    });
+            const imageElements = msg.querySelectorAll('.single-image-container a[href]');
+            imageElements.forEach(processLink);
+
+            if (text || attachments.length > 0) {
+                chatData.push({
+                    senderName,
+                    isUs,
+                    text,
+                    time: currentTime || "",
+                    avatar: displayAvatar,
+                    attachments
+                });
+                
+                const messageText = text.trim();
+                const attachmentsSection = attachments.length > 0 ? `\n[مرفقات: ${attachments.map(a => a.name).join(', ')}]` : '';
+                textOutput += `[${currentTime || ''}] ${senderName}:\n${messageText}${attachmentsSection}\n\n`;
+                textOutputNoTime += `${senderName}:\n${messageText}${attachmentsSection}\n\n`;
+            }
+        });
+    }
 
     console.log("Extracted Chat Data:", chatData);
 
@@ -1737,14 +1757,14 @@ async function executeChatExport() {
     const pData = projectDetailsResult?.data || {};
     const propData = myProposalResult?.data || {};
     
-    const projectIdMatch = window.location.pathname.match(/\/message\/(\d+)/);
-    const discussionId = projectIdMatch ? projectIdMatch[1] : Date.now();
+    const projectIdMatch = window.location.pathname.match(/\/(message|project)\/(\d+)/);
+    const discussionId = projectIdMatch ? projectIdMatch[2] : Date.now();
     
     // Improved safe title: allow Arabic characters, cleanup multiple underscores, trim length
-    let safeTitle = document.title ? document.title.replace(/[^\u0600-\u06FFa-z0-9]/gi, '_') : 'chat';
+    let safeTitle = document.title ? document.title.replace(/[^\u0600-\u06FFa-z0-9]/gi, '_') : 'export';
     safeTitle = safeTitle.replace(/_+/g, '_').replace(/^_+|_+$/g, '').substring(0, 50);
     
-    const folderName = `mostaql_chat_${discussionId}_${safeTitle}`;
+    const folderName = `mostaql_export_${discussionId}_${safeTitle}`;
 
     const html = `
     <html dir="rtl" lang="ar">

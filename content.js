@@ -1622,17 +1622,10 @@ function injectMessageExporter() {
 async function executeChatExport() {
     console.log("Starting chat export...");
     
-    const exportBtn = document.getElementById('mostaql-export-chat-btn');
-    const originalBtnText = exportBtn.innerHTML;
-    exportBtn.disabled = true;
-    exportBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري التصدير...';
-
     // Detect Identity based on the very first message found
     const messages = document.querySelectorAll("#chat-root [id^='message-'], .message-item");
     if (messages.length === 0) {
         alert("لم يتم العثور على رسائل في هذه الصفحة.");
-        exportBtn.disabled = false;
-        exportBtn.innerHTML = originalBtnText;
         return;
     }
 
@@ -2081,24 +2074,22 @@ async function executeChatExport() {
     });
 
     if (chrome.runtime && chrome.runtime.id) {
-        chrome.runtime.sendMessage({
-            action: 'download_zip',
-            filename: `${folderName}.zip`,
-            files: filesToZip
-        }, (response) => {
-            exportBtn.disabled = false;
-            exportBtn.innerHTML = originalBtnText;
+        return new Promise((resolve) => {
+            chrome.runtime.sendMessage({
+                action: 'download_zip',
+                filename: `${folderName}.zip`,
+                files: filesToZip
+            }, (response) => {
+                const blob = new Blob([html], {type: 'text/html'});
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+                resolve();
+            });
         });
     } else {
-        exportBtn.disabled = false;
-        exportBtn.innerHTML = originalBtnText;
         alert("انتهت صلاحية جلسة الإضافة بسبب تحديثها. يرجى تحديث الصفحة (Refresh) والمحاولة مرة أخرى.");
-        return;
+        throw new Error("Context invalidated");
     }
-
-    const blob = new Blob([html], {type: 'text/html'});
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
 }
 
 

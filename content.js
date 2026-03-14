@@ -26,6 +26,7 @@ let observerStarted = false;
 function getPageType() {
     const path = location.pathname;
     if (/\/project[s]?\/\d+/.test(path)) return 'project';
+    if (/\/message\//.test(path)) return 'message';
     if (/\/messages/.test(path)) return 'messages';
     if (/\/profile/.test(path)) return 'profile';
     if (path === '/' || path === "") return 'home';
@@ -608,30 +609,46 @@ function extractProjectData() {
     let budget = 'غير محدد';
     let publishDate = 'غير معروف';
 
-    const metaRows = document.querySelectorAll('.meta-row, .table-meta tr');
+    const metaRows = document.querySelectorAll('.meta-row, .table-meta tr, .card .table tr, li.meta-item');
     metaRows.forEach(row => {
-        const label = row.querySelector('.meta-label, td:first-child')?.textContent.trim();
-        const value = row.querySelector('.meta-value, td:last-child')?.textContent.trim();
+        const label = row.querySelector('.meta-label, td:first-child, .meta-item-label')?.textContent.trim() || row.innerText.split(/[:\n]/)[0]?.trim();
+        const value = row.querySelector('.meta-value, td:last-child, .meta-item-value')?.textContent.trim() || row.innerText.split(/[:\n]/).pop()?.trim();
 
         if (label && value) {
-            if (label.includes('التواصلات الجارية')) {
+            const l = label.toLowerCase();
+            if (label.includes('التواصلات') || label.includes('Communications')) {
                 communications = value;
-            } else if (label.includes('مدة التنفيذ')) {
+            } else if (label.includes('مدة التنفيذ') || label.includes('Duration')) {
                 duration = value;
-            } else if (label.includes('الميزانية')) {
+            } else if (label.includes('الميزانية') || label.includes('Budget')) {
                 budget = value;
-            } else if (label.includes('تاريخ النشر')) {
+            } else if (label.includes('تاريخ النشر') || label.includes('Published')) {
                 publishDate = value;
+            } else if (label.includes('معدل التوظيف') || label.includes('Hiring')) {
+                hiringRate = value;
+            } else if (label.includes('تاريخ التسجيل') || label.includes('Joined')) {
+                clientJoined = value;
+            } else if (label.includes('المشاريع المفتوحة')) {
+                openProjects = value;
+            } else if (label.includes('مشاريع قيد التنفيذ')) {
+                underwayProjects = value;
             }
         }
     });
 
     // Fallback/Specific selectors
-    const budgetEl = document.querySelector('[data-type="project-budget_range"]');
+    const budgetEl = document.querySelector('[data-type="project-budget_range"], #project-meta-panel .meta-value[data-type="project-budget_range"]');
     if (budgetEl) budget = budgetEl.textContent.trim();
 
-    const timeEl = document.querySelector('time[itemprop="datePublished"]');
+    const timeEl = document.querySelector('time[itemprop="datePublished"], #project-meta-panel time');
     if (timeEl) publishDate = timeEl.textContent.trim();
+
+    // Specific check for sidebar tags
+    const sideTags = document.querySelectorAll('#project-meta-panel .tag');
+    let tagsStr = '';
+    if (sideTags.length > 0) {
+        tagsStr = Array.from(sideTags).map(t => t.innerText.trim()).join(', ');
+    }
 
     // Client Name
     const clientNameEl = document.querySelector('.profile__name bdi');
@@ -672,11 +689,14 @@ function extractProjectData() {
     }
 
     // Tags
-    const tags = Array.from(document.querySelectorAll('.skills .tag'))
+    const tags = Array.from(document.querySelectorAll('.skills .tag, .tags .tag, .project-tags .tag'))
         .map(tag => tag.textContent.trim())
         .join(', ');
 
-    const title = document.querySelector('.heada__title span[data-type="page-header-title"]')?.textContent.trim() || document.title || 'مشروع غير معنون';
+    const titleEl = document.querySelector('.heada__title span[data-type="page-header-title"]') || 
+                    document.querySelector('.page-title h1') ||
+                    document.querySelector('.project-title');
+    const title = titleEl?.textContent.trim() || document.title || 'مشروع غير معنون';
 
     return {
         id: projectId || '',
@@ -689,7 +709,7 @@ function extractProjectData() {
         budget: budget || 'غير محدد',
         publishDate: publishDate || 'غير معروف',
         clientName: clientName || 'غير معروف',
-        tags: tags || '',
+        tags: tags || tagsStr || '',
         category: category || 'عام',
         hiringRate: hiringRate || 'غير متوفر',
         openProjects: openProjects || '0',
@@ -927,6 +947,10 @@ function runInjectors() {
     if (page === 'project') {
         injectTrackButton();
         checkForAutofill();
+    }
+
+    if (page === 'message') {
+        injectMessageExporter();
     }
 
     if (page === 'home') {
@@ -1560,6 +1584,703 @@ function injectProfileTools() {
     box.innerHTML = `<button class="btn btn-success">أداة بروفايل</button>`;
     target.appendChild(box);
 }
+
+function injectMessageExporter() {
+    // We want to add the button near the project details top navigation
+    const targetNav = document.querySelector("#bidTabs > ul");
+    if (!targetNav) return;
+
+    if (document.getElementById('mostaql-export-chat-btn')) return;
+
+    const li = document.createElement('li');
+    li.className = 'nav-item mrg--an-imp';
+    
+    const btn = document.createElement('button');
+    btn.id = 'mostaql-export-chat-btn';
+    btn.className = 'btn btn-primary';
+    btn.style.marginTop = '10px';
+    btn.style.marginLeft = '5px';
+    btn.innerHTML = '<i class="fa fa-download"></i> تصدير المحادثة';
+    btn.title = 'تصدير المحادثة (PDF، نص، ومرفقات)';
+    
+    btn.addEventListener('click', async () => {
+        await executeChatExport();
+    });
+
+    const debugBtn = document.createElement('button');
+    debugBtn.id = 'mostaql-debug-fetch-btn';
+    debugBtn.className = 'btn btn-default'; // Neutral color
+    debugBtn.style.marginTop = '10px';
+    debugBtn.style.marginLeft = '5px';
+    debugBtn.innerHTML = '<i class="fa fa-bug"></i> Debug Data';
+    debugBtn.title = 'طباعة البيانات في الكونسول للمعاينة';
+    
+    debugBtn.addEventListener('click', async () => {
+        debugBtn.disabled = true;
+        const originalText = debugBtn.innerHTML;
+        debugBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Loading...';
+        await executeDebugFetch();
+        debugBtn.disabled = false;
+        debugBtn.innerHTML = originalText;
+    });
+
+    li.appendChild(btn);
+    li.appendChild(debugBtn);
+    targetNav.appendChild(li);
+}
+
+async function executeDebugFetch() {
+    console.log("%c--- Mostaql Data Debug ---", "color: #2386c8; font-weight: bold; font-size: 14px;");
+    
+    const details = await extractProjectDetailsFull();
+    console.log("%c[Project Details File Content]", "color: #e67e22; font-weight: bold;");
+    console.log(details || "Error: No project details found.");
+
+    console.log("\n");
+
+    const proposal = extractMyProposalFull();
+    console.log("%c[My Proposal File Content]", "color: #27ae60; font-weight: bold;");
+    console.log(proposal || "Error: No proposal found.");
+    
+    console.log("%c---------------------------", "color: #2386c8; font-weight: bold;");
+    alert("تمت طباعة البيانات في الكونسول (F12) بنجاح!");
+}
+
+async function executeChatExport() {
+    console.log("Starting chat export...");
+    
+    const exportBtn = document.getElementById('mostaql-export-chat-btn');
+    const originalBtnText = exportBtn.innerHTML;
+    exportBtn.disabled = true;
+    exportBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري التصدير...';
+
+    // Detect Identity based on the very first message found
+    const messages = document.querySelectorAll("#chat-root [id^='message-'], .message-item");
+    if (messages.length === 0) {
+        alert("لم يتم العثور على رسائل في هذه الصفحة.");
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = originalBtnText;
+        return;
+    }
+
+    const firstMsgNameEl = messages[0].querySelector('.metas-title');
+    const firstSenderName = firstMsgNameEl ? firstMsgNameEl.innerText.trim() : "Other";
+
+    let chatData = [];
+    let lastKnownSender = {
+        name: firstSenderName,
+        isUs: false,
+        avatar: ""
+    };
+    
+    let textOutput = "تصدير محادثة مستقل\n\n";
+    let mediaUrls = [];
+
+    messages.forEach((msg) => {
+        const nameEl = msg.querySelector('.metas-title');
+        const timeEl = msg.querySelector('time');
+        const avatarEl = msg.querySelector('img.uavatar') || msg.querySelector('img:not([class="meta-icon"])'); // fallback for avatar
+
+        let currentName = nameEl ? nameEl.innerText.trim() : null;
+        let currentTime = timeEl ? (timeEl.getAttribute('title') || timeEl.innerText.trim()) : null;
+        let currentAvatar = avatarEl ? avatarEl.src : null;
+
+        let isUs, senderName, displayAvatar;
+
+        if (currentName) {
+            isUs = (currentName !== firstSenderName);
+            senderName = currentName;
+            displayAvatar = currentAvatar;
+
+            lastKnownSender = { name: senderName, isUs: isUs, avatar: displayAvatar };
+        } else {
+            isUs = lastKnownSender.isUs;
+            senderName = lastKnownSender.name;
+            displayAvatar = lastKnownSender.avatar;
+        }
+
+        const textEl = msg.querySelector('.content p, .text-wrapper-div p, p, .text-wrapper-div');
+        const text = textEl ? textEl.innerText.trim() : "";
+
+        const contentImgs = msg.querySelectorAll('.content img, .message-item-container img:not(.icon.loaded img)');
+        let attachments = [];
+        
+        const getFilenameFromUrl = (urlStr) => {
+            try {
+                // Example URL: https://mostaql.com/file/3617696/69b43073dc41a/2026-03-13-17.42.38.png
+                const u = new URL(urlStr);
+                const parts = u.pathname.split('/');
+                return parts.pop() || 'media_file';
+            } catch {
+                return 'media_file';
+            }
+        };
+
+        const processLink = (linkNode) => {
+             const url = linkNode.href;
+             let filename = linkNode.innerText.trim();
+             // If the inner text is just an empty string or whitespace (typical for image elements inside links)
+             if (!filename || filename === "") {
+                 filename = getFilenameFromUrl(url);
+             }
+             if (!attachments.find(a => a.url === url)) {
+                 attachments.push({ url, name: filename });
+             }
+             if (!mediaUrls.find(m => m.url === url)) {
+                 mediaUrls.push({ url, name: filename });
+             }
+        };
+
+        // Include actual images/videos
+        const mediaLinks = msg.querySelectorAll('a[href*="/file/"]');
+        mediaLinks.forEach(processLink);
+        
+        // Also capture images presented inside .single-image-container 
+        const imageElements = msg.querySelectorAll('.single-image-container a[href]');
+        imageElements.forEach(processLink);
+
+        if (text || attachments.length > 0) {
+            chatData.push({
+                senderName,
+                isUs,
+                text,
+                time: currentTime || "",
+                avatar: displayAvatar,
+                attachments
+            });
+            
+            textOutput += `[${currentTime || ''}] ${senderName}:\n${text}\n`;
+            if (attachments.length > 0) {
+                textOutput += `مرفقات:\n${attachments.map(a => a.name).join('\n')}\n`;
+            }
+            textOutput += "\n---------------------------\n\n";
+        }
+    });
+
+    console.log("Extracted Chat Data:", chatData);
+
+    const projectDetailsResult = await extractProjectDetailsFull();
+    const myProposalResult = extractMyProposalFull();
+    
+    const projectDetailsText = projectDetailsResult?.text || "";
+    const myProposalText = myProposalResult?.text || "";
+    const pData = projectDetailsResult?.data || {};
+    const propData = myProposalResult?.data || {};
+    
+    const projectIdMatch = window.location.pathname.match(/\/message\/(\d+)/);
+    const discussionId = projectIdMatch ? projectIdMatch[1] : Date.now();
+    const safeTitle = document.title ? document.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'chat';
+    const folderName = `mostaql_chat_${discussionId}_${safeTitle}`;
+
+    const filesToZip = [];
+    
+    filesToZip.push({
+        name: `chat_log.txt`,
+        content: textOutput
+    });
+
+    if (projectDetailsText) {
+        filesToZip.push({
+            name: `project_details.txt`,
+            content: projectDetailsText
+        });
+    }
+
+    if (myProposalText) {
+        filesToZip.push({
+            name: `my_proposal.txt`,
+            content: myProposalText
+        });
+    }
+
+    mediaUrls.forEach((media, index) => {
+        let fileName = media.name || `media_${index}`;
+        fileName = fileName.replace(/[^a-zA-Z0-9.\\-_]/g, '_');
+        filesToZip.push({
+            name: `media/${fileName}`,
+            url: media.url
+        });
+    });
+
+    if (chrome.runtime && chrome.runtime.id) {
+        chrome.runtime.sendMessage({
+            action: 'download_zip',
+            filename: `${folderName}.zip`,
+            files: filesToZip
+        }, (response) => {
+            exportBtn.disabled = false;
+            exportBtn.innerHTML = originalBtnText;
+        });
+    } else {
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = originalBtnText;
+        alert("انتهت صلاحية جلسة الإضافة بسبب تحديثها. يرجى تحديث الصفحة (Refresh) والمحاولة مرة أخرى.");
+        return;
+    }
+
+    const html = `
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>تقرير مشروع مستقل - ${discussionId}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+        <style>
+            :root {
+                --primary: #2386c8;
+                --primary-light: #e3f2fd;
+                --text-main: #2c3e50;
+                --text-muted: #7f8c8d;
+                --bg-body: #f8fafc;
+                --bg-card: #ffffff;
+                --border-color: #e2e8f0;
+                --radius: 12px;
+                --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            }
+
+            * { box-sizing: border-box; }
+            body { 
+                font-family: 'Cairo', sans-serif; 
+                background: var(--bg-body); 
+                padding: 40px 20px; 
+                line-height: 1.6; 
+                color: var(--text-main); 
+                margin: 0;
+                font-size: 14px;
+            }
+            
+            .container { 
+                max-width: 950px; 
+                margin: auto; 
+                background: var(--bg-card); 
+                padding: 40px; 
+                border-radius: var(--radius); 
+                box-shadow: var(--shadow); 
+            }
+            
+            header { 
+                text-align: center; 
+                margin-bottom: 50px; 
+                padding-bottom: 25px; 
+                border-bottom: 2px solid var(--primary-light); 
+            }
+            h1 { 
+                margin: 0; 
+                color: var(--primary); 
+                font-size: 28px; 
+                font-weight: 700;
+            }
+            .date-stamp { color: var(--text-muted); font-size: 14px; margin-top: 8px; font-weight: 400; }
+
+            section { 
+                margin-bottom: 30px; 
+            }
+            h2 { 
+                color: var(--text-main); 
+                font-size: 20px; 
+                font-weight: 700;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 20px;
+            }
+            h2::before {
+                content: '';
+                display: inline-block;
+                width: 6px;
+                height: 22px;
+                background: var(--primary);
+                border-radius: 4px;
+            }
+
+            h3 { font-size: 16px; color: var(--primary); margin: 25px 0 12px; font-weight: 600; }
+            
+            .info-card { 
+                background: #fbfcfd; 
+                border: 1px solid var(--border-color); 
+                border-radius: var(--radius); 
+                padding: 20px;
+                margin-bottom: 15px;
+            }
+
+            .info-grid { 
+                display: grid; 
+                grid-template-columns: repeat(2, 1fr); 
+                gap: 15px; 
+            }
+            .info-item { 
+                display: flex; 
+                flex-direction: column; 
+                padding: 8px;
+                border-bottom: 1px solid #f1f5f9;
+            }
+            .info-item.full-width {
+                grid-column: 1 / -1;
+            }
+            .info-label { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-bottom: 2px; }
+            .info-value { font-size: 15px; color: var(--text-main); font-weight: 700; }
+
+            .content-box { 
+                background: #fff; 
+                border: 1px solid var(--border-color); 
+                padding: 20px; 
+                border-radius: var(--radius); 
+                white-space: pre-wrap; 
+                font-size: 14px; 
+                line-height: 1.6;
+                color: #334155;
+            }
+            
+            .tags-cloud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+            .tag-pill { 
+                background: var(--primary-light); 
+                color: var(--primary); 
+                padding: 5px 14px; 
+                border-radius: 50px; 
+                font-size: 13px; 
+                font-weight: 600; 
+                border: 1px solid #bbdefb;
+                transition: all 0.2s;
+            }
+
+            .chat-container { display: flex; flex-direction: column; gap: 20px; margin-top: 30px; }
+            .msg-row { display: flex; width: 100%; align-items: flex-start; }
+            .msg-row.us { flex-direction: row-reverse; }
+            
+            .avatar-col { width: 60px; flex-shrink: 0; padding: 0 10px; text-align: center; }
+            .avatar-col img { 
+                width: 45px; 
+                height: 45px; 
+                border-radius: 50%; 
+                border: 3px solid #fff; 
+                box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            }
+            
+            .bubble { 
+                max-width: 80%; 
+                padding: 12px 18px; 
+                border-radius: 18px; 
+                box-shadow: 0 2px 10px rgba(0,0,0,0.02); 
+                font-size: 13px; 
+            }
+            .msg-row { page-break-inside: avoid; margin-bottom: 15px; }
+            .us .bubble { background: #e3f2fd; color: #1e293b; border-top-right-radius: 4px; }
+            .other .bubble { background: #fff; border: 1px solid var(--border-color); border-top-left-radius: 4px; }
+            
+            .sender-name { font-weight: 700; font-size: 12.5px; display: block; margin-bottom: 8px; color: var(--primary); }
+            .time { font-size: 11px; color: var(--text-muted); display: block; margin-top: 10px; }
+            
+            .attachment-preview { margin-top: 20px; }
+            .attachment-preview img { 
+                max-width: 100%; 
+                max-height: 500px; 
+                border-radius: var(--radius); 
+                border: 1px solid var(--border-color); 
+                object-fit: contain;
+                box-shadow: var(--shadow);
+            }
+            .attach-link { 
+                display: inline-flex; 
+                align-items: center; 
+                gap: 8px;
+                color: var(--primary); 
+                text-decoration: none; 
+                font-size: 12.5px; 
+                margin-top: 12px; 
+                font-weight: 600;
+                padding: 8px 15px;
+                background: var(--primary-light);
+                border-radius: 8px;
+            }
+
+            .page-break { page-break-before: always; }
+            
+            @media print {
+                body { background: #fff !important; padding: 0 !important; }
+                .container { box-shadow: none !important; border: none !important; width: 100% !important; max-width: none !important; padding: 0 !important; }
+                .no-print { display: none !important; }
+                .info-card, .content-box, .bubble { border: 1px solid #e2e8f0 !important; page-break-inside: auto !important; }
+                h1, h2, h3 { color: #000 !important; page-break-after: avoid !important; }
+                .msg-row { page-break-inside: avoid !important; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>تقرير عمل مشروع مستقل</h1>
+                <div class="date-stamp">${new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            </header>
+
+            <section>
+                <h2>1. وصف وتفاصيل المشروع</h2>
+                <div class="info-card">
+                    <div class="info-grid">
+                        <div class="info-item full-width"><span class="info-label">اسم المشروع</span><span class="info-value">${pData.title || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">حالة المشروع</span><span class="info-value">${pData.status || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">الميزانية</span><span class="info-value">${pData.budget || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">مدة التنفيذ</span><span class="info-value">${pData.duration || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">صاحب العمل</span><span class="info-value">${pData.clientName || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">القسم</span><span class="info-value">${pData.category || "-"}</span></div>
+                    </div>
+                </div>
+                
+                <h3>نص الوصف:</h3>
+                <div class="content-box">${pData.description || "لا يوجد وصف"}</div>
+                
+                <div class="tags-cloud">
+                    ${(pData.tagsList || []).map(t => `<span class="tag-pill">${t}</span>`).join('')}
+                </div>
+            </section>
+
+            <section>
+                <h2>2. العرض والاتفاق المالي</h2>
+                <div class="info-card">
+                    <div class="info-grid">
+                        <div class="info-item"><span class="info-label">المقدم</span><span class="info-value">${propData.freelancer || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">المبلغ المتفق عليه</span><span class="info-value">${propData.price || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">المدة الزمنية</span><span class="info-value">${propData.duration || "-"}</span></div>
+                    </div>
+                </div>
+                <h3>نص العرض المقدم:</h3>
+                <div class="content-box">${propData.content || "لا يوجد نص"}</div>
+            </section>
+
+            <div class="page-break"></div>
+
+            <section>
+                <h2>3. سجل المناقشات والرسائل</h2>
+                <div class="chat-container">
+                    ${chatData.map(m => `
+                        <div class="msg-row ${m.isUs ? 'us' : 'other'}">
+                            <div class="avatar-col">
+                                ${m.avatar ? `<img src="${m.avatar}">` : '<i class="fa fa-user-circle fa-3x" style="color:#cbd5e1;"></i>'}
+                            </div>
+                            <div class="bubble">
+                                <span class="sender-name">${m.senderName}</span>
+                                <div class="text-content">${m.text.replace(/\n/g, '<br>')}</div>
+                                
+                                ${m.attachments.map(a => {
+                                    const isImg = a.name.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                                    return `
+                                        <div class="attachment-preview">
+                                            ${isImg ? `<img src="${a.url}" alt="${a.name}" onerror="this.style.display='none'">` : ''}
+                                            <a href="${a.url}" target="_blank" class="attach-link">
+                                                <i class="fa fa-paperclip"></i> ${a.name}
+                                            </a>
+                                        </div>
+                                    `;
+                                }).join('')}
+                                
+                                <span class="time">${m.time}</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </section>
+            
+            <button class="no-print" onclick="window.print()" style="position:fixed; bottom:40px; left:40px; padding: 20px 40px; background: var(--primary); color:#fff; border:none; border-radius: 50px; cursor:pointer; font-family: 'Cairo', sans-serif; font-weight:700; font-size:18px; box-shadow: 0 10px 25px rgba(35, 134, 200, 0.4); display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
+                <i class="fa fa-file-pdf-o"></i> حفظ وحفظ كـ PDF
+            </button>
+        </div>
+    </body>
+    </html>`;
+
+    const blob = new Blob([html], {type: 'text/html'});
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+}
+
+
+async function extractProjectDetailsFull() {
+    try {
+        let data = extractProjectData();
+        let description = "";
+
+        const projectLinkSelector = "body > div.wrapper.hsoub-container > div > div.page-body > div > div.page-title > div:nth-child(2) > div > div > div > div > a";
+        const projectLinkEl = document.querySelector(projectLinkSelector);
+        
+        if (projectLinkEl && projectLinkEl.href) {
+            const externalData = await fetchDeepProjectData(projectLinkEl.href);
+            if (externalData) {
+                description = externalData.description;
+                data = { ...data, ...externalData };
+            }
+        }
+
+        if (!description) {
+            const descriptionSelectors = ["#project-brief .text-wrapper-div", ".project-description .text-wrapper-div", "#project-brief"];
+            for (const selector of descriptionSelectors) {
+                const el = document.querySelector(selector);
+                if (el) {
+                    const text = el.innerText.trim();
+                    if (text.length > 50 && !text.includes("عرض المشروع")) {
+                        description = text;
+                        break;
+                    }
+                }
+            }
+        }
+
+        const allTags = new Set();
+        if (data.tags) {
+            data.tags.split(',').forEach(t => {
+                const cleaned = t.trim();
+                if (cleaned && cleaned !== 'null') allTags.add(cleaned);
+            });
+        }
+        data.tagsList = Array.from(allTags);
+        data.description = description || "تعذر العثور على وصف تفصيلي.";
+
+        let output = `تفاصيل المشروع:\n`;
+        output += `العنوان: ${data.title}\n`;
+        output += `الحالة: ${data.status}\n`;
+        output += `الميزانية: ${data.budget}\n`;
+        output += `مدة التنفيذ: ${data.duration}\n`;
+        output += `القسم: ${data.category}\n`;
+        output += `الوسوم: ${data.tagsList.join(', ')}\n\n`;
+        output += `معلومات صاحب العمل:\n`;
+        output += `الاسم: ${data.clientName}\n\n`;
+        output += `وصف المشروع:\n${data.description}\n`;
+
+        return { text: output, data: data };
+    } catch (e) {
+        console.error("Error extracting project details:", e);
+        return null;
+    }
+}
+
+async function fetchDeepProjectData(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, "text/html");
+        
+        const res = {};
+        
+        // 1. Tags
+        const tags = Array.from(doc.querySelectorAll('.tag, .skills__item bdi'));
+        if (tags.length > 0) {
+            res.tags = Array.from(new Set(tags.map(t => t.innerText.trim()))).join(', ');
+        }
+
+        // Helper for specific meta-row structure
+        const getMetaValue = (label) => {
+            const rows = doc.querySelectorAll('.meta-row');
+            for (const row of rows) {
+                if (row.querySelector('.meta-label')?.innerText.includes(label)) {
+                    return row.querySelector('.meta-value')?.innerText.trim();
+                }
+            }
+            // Fallback for tables
+            const trs = doc.querySelectorAll('tr');
+            for (const tr of trs) {
+                if (tr.innerText.includes(label)) {
+                    return tr.querySelector('td:last-child')?.innerText.trim();
+                }
+            }
+            return null;
+        };
+
+        res.status = getMetaValue('حالة المشروع') || doc.querySelector('.project-header .label')?.innerText.trim();
+        res.budget = getMetaValue('الميزانية');
+        res.duration = getMetaValue('مدة التنفيذ');
+        res.publishDate = getMetaValue('تاريخ النشر') || doc.querySelector('time[itemprop="datePublished"]')?.innerText.trim();
+        
+        // Client data
+        const clientCard = doc.querySelector('.profile_card');
+        if (clientCard) {
+            const getClientVal = (label) => {
+                const trs = clientCard.querySelectorAll('tr');
+                for (const tr of trs) {
+                    if (tr.innerText.includes(label)) {
+                        return tr.querySelector('td:last-child')?.innerText.trim();
+                    }
+                }
+                return null;
+            };
+            res.hiringRate = getClientVal('معدل التوظيف');
+            res.clientJoined = getClientVal('تاريخ التسجيل');
+        }
+
+        // Description extraction
+        const briefElFinal = doc.querySelector('#project-brief .text-wrapper-div') || 
+                             doc.querySelector('#project-brief') ||
+                             doc.querySelector('.project-description .text-wrapper-div') ||
+                             doc.querySelector('.project-description');
+        res.description = briefElFinal ? briefElFinal.innerText.trim() : "";
+
+        return res;
+    } catch (err) {
+        console.error("Deep fetch failed:", err);
+        return null;
+    }
+}
+
+function extractMyProposalFull() {
+    try {
+        const bidTab = document.querySelector('#bidTab');
+        const targetProposal = bidTab?.querySelector('.bid') || 
+                               document.querySelector('.proposal-item') || 
+                               document.querySelector('.card-proposal') ||
+                               document.querySelector('.bid');
+
+        if (!targetProposal) return null;
+
+        const nameNode = targetProposal.querySelector('.profile__name')?.cloneNode(true);
+        if (nameNode) {
+            const extra = nameNode.querySelector('.dropdown, .btn, .dropdown-toggle-default-sm');
+            if (extra) extra.remove();
+        }
+        const name = nameNode ? nameNode.innerText.trim() : "Omar Abbas";
+
+        let price = "";
+        let duration = "";
+        
+        const metaCols = targetProposal.querySelectorAll('.vertical-meta-column');
+        metaCols.forEach(col => {
+            const title = col.querySelector('.meta-title')?.innerText.trim();
+            const contentEl = col.querySelector('.meta-content')?.cloneNode(true);
+            if (contentEl) {
+                const hidden = contentEl.querySelectorAll('.hide, style, script, input');
+                hidden.forEach(h => h.remove());
+            }
+            const content = contentEl ? contentEl.innerText.trim() : "";
+            
+            if (title && content) {
+                if (title.includes('المبلغ')) price = content;
+                else if (title.includes('التنفيذ')) duration = content;
+            }
+        });
+
+        const contentEl = targetProposal.querySelector('.bid__details .text-wrapper-div') || 
+                          targetProposal.querySelector('.text-wrapper-div');
+        
+        let content = contentEl ? contentEl.innerText.trim() : "";
+        content = content.replace("... عرض المزيد", "").replace("عرض أقل", "").trim();
+
+        const data = {
+            freelancer: name,
+            price: price,
+            duration: duration,
+            content: content || "نص العرض غير متوفر"
+        };
+
+        let output = `عرضي الخاص:\nالمتقدم: ${name}\nالمبلغ: ${price}\nمدة التنفيذ: ${duration}\n\nنص العرض:\n${data.content}\n`;
+
+        return { text: output, data: data };
+    } catch (e) {
+        console.error("Error extracting my proposal:", e);
+        return null;
+    }
+}
+
+
+
 
 
 

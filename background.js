@@ -2,6 +2,13 @@
 // Mostaql Job Notifier - Background Service Worker
 // ==========================================
 
+try {
+  importScripts('jszip.min.js');
+  console.log('✅ JSZip library loaded successfully');
+} catch (e) {
+  console.warn('⚠️ JSZip library not found. Compression might fail.', e);
+}
+
 // Load SignalR client library
 let SIGNALR_AVAILABLE = false;
 try {
@@ -981,6 +988,93 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'getDefaultPrompts') {
     sendResponse({ success: true, prompts: DEFAULT_PROMPTS });
     return false; // Sync response
+  }
+
+  // Handle media downloads from content script
+  if (message.action === 'download_media') {
+    const { url, filename, content } = message;
+    
+    if (content) {
+      // Download text content as file (data URI)
+      const dataUrl = 'data:text/plain;charset=utf-8,' + encodeURIComponent(content);
+      chrome.downloads.download({
+        url: dataUrl,
+        filename: filename,
+        saveAs: false
+      }, (downloadId) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          sendResponse({ success: true, downloadId });
+        }
+      });
+      return true; // async response
+    } else if (url) {
+      // Download standard URL
+      chrome.downloads.download({
+        url: url,
+        filename: filename,
+        saveAs: false
+      }, (downloadId) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          sendResponse({ success: true, downloadId });
+        }
+      });
+      return true; // async response
+    }
+  }
+
+  // Handle zip downloads from content script
+  if (message.action === 'download_zip') {
+    const { filename, files } = message;
+    
+    if (typeof JSZip !== 'undefined') {
+      const zip = new JSZip();
+      
+      const fetchPromises = files.map(async (f) => {
+        if (f.content) {
+          zip.file(f.name, f.content);
+        } else if (f.url) {
+          try {
+            const resp = await fetch(f.url);
+            if (!resp.ok) throw new Error(`HTTP error ${resp.status}`);
+            const buffer = await resp.arrayBuffer();
+            zip.file(f.name, buffer);
+          } catch (e) {
+            console.error(`Failed to fetch ${f.url} for zip:`, e);
+            zip.file(`${f.name}.error.txt`, `Failed to download: ${e.message}`);
+          }
+        }
+      });
+
+      Promise.all(fetchPromises).then(() => {
+        zip.generateAsync({ type: "base64" }).then((base64) => {
+          const dataUrl = 'data:application/zip;base64,' + base64;
+          
+          chrome.downloads.download({
+            url: dataUrl,
+            filename: filename,
+            saveAs: true // User picks where to save the consolidated ZIP
+          }, (downloadId) => {
+            if (chrome.runtime.lastError) {
+              sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            } else {
+              sendResponse({ success: true, downloadId });
+            }
+          });
+        }).catch(err => {
+          console.error("ZIP Generation error:", err);
+          sendResponse({ success: false, error: err.message });
+        });
+      });
+      return true; // async
+    } else {
+      console.error("JSZip not loaded");
+      sendResponse({ success: false, error: "JSZip not loaded" });
+      return false; // sync
+    }
   }
 });
 

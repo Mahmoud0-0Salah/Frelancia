@@ -26,6 +26,7 @@ let observerStarted = false;
 function getPageType() {
     const path = location.pathname;
     if (/\/project[s]?\/\d+/.test(path)) return 'project';
+    if (/\/message\//.test(path)) return 'message';
     if (/\/messages/.test(path)) return 'messages';
     if (/\/profile/.test(path)) return 'profile';
     if (path === '/' || path === "") return 'home';
@@ -600,42 +601,61 @@ function getProjectId() {
 function extractProjectData() {
     // Extract Status
     const statusLabel = document.querySelector('.label-prj-open, .label-prj-closed, .label-prj-completed, .label-prj-cancelled, .label-prj-underway, .label-prj-processing');
-    const status = statusLabel ? statusLabel.textContent.trim() : 'غير معروف';
+    const status = statusLabel ? statusLabel.textContent.trim().replace(/\s+/g, ' ') : 'غير معروف';
 
     // Extract Meta Data (Communications, Duration, Budget, Publish Date)
     let communications = '0';
     let duration = 'غير محدد';
     let budget = 'غير محدد';
     let publishDate = 'غير معروف';
+    let hiringRate = 'غير معروف';
+    let clientJoined = 'غير معروف';
+    let openProjects = '0';
+    let underwayProjects = '0';
 
-    const metaRows = document.querySelectorAll('.meta-row, .table-meta tr');
+    const metaRows = document.querySelectorAll('.meta-row, .table-meta tr, .card .table tr, li.meta-item');
     metaRows.forEach(row => {
-        const label = row.querySelector('.meta-label, td:first-child')?.textContent.trim();
-        const value = row.querySelector('.meta-value, td:last-child')?.textContent.trim();
+        const label = row.querySelector('.meta-label, td:first-child, .meta-item-label')?.textContent.trim().replace(/\s+/g, ' ') || row.innerText.split(/[:\n]/)[0]?.trim().replace(/\s+/g, ' ');
+        const value = row.querySelector('.meta-value, td:last-child, .meta-item-value')?.textContent.trim().replace(/\s+/g, ' ') || row.innerText.split(/[:\n]/).pop()?.trim().replace(/\s+/g, ' ');
 
         if (label && value) {
-            if (label.includes('التواصلات الجارية')) {
+            if (label.includes('التواصلات') || label.includes('Communications')) {
                 communications = value;
-            } else if (label.includes('مدة التنفيذ')) {
+            } else if (label.includes('مدة التنفيذ') || label.includes('Duration')) {
                 duration = value;
-            } else if (label.includes('الميزانية')) {
+            } else if (label.includes('الميزانية') || label.includes('Budget')) {
                 budget = value;
-            } else if (label.includes('تاريخ النشر')) {
+            } else if (label.includes('تاريخ النشر') || label.includes('Published')) {
                 publishDate = value;
+            } else if (label.includes('معدل التوظيف') || label.includes('Hiring')) {
+                hiringRate = value;
+            } else if (label.includes('تاريخ التسجيل') || label.includes('Joined')) {
+                clientJoined = value;
+            } else if (label.includes('المشاريع المفتوحة')) {
+                openProjects = value;
+            } else if (label.includes('مشاريع قيد التنفيذ')) {
+                underwayProjects = value;
             }
         }
     });
 
     // Fallback/Specific selectors
-    const budgetEl = document.querySelector('[data-type="project-budget_range"]');
-    if (budgetEl) budget = budgetEl.textContent.trim();
+    const budgetEl = document.querySelector('[data-type="project-budget_range"], #project-meta-panel .meta-value[data-type="project-budget_range"]');
+    if (budgetEl) budget = budgetEl.textContent.trim().replace(/\s+/g, ' ');
 
-    const timeEl = document.querySelector('time[itemprop="datePublished"]');
-    if (timeEl) publishDate = timeEl.textContent.trim();
+    const timeEl = document.querySelector('time[itemprop="datePublished"], #project-meta-panel time');
+    if (timeEl) publishDate = timeEl.textContent.trim().replace(/\s+/g, ' ');
+
+    // Specific check for sidebar tags
+    const sideTags = document.querySelectorAll('#project-meta-panel .tag');
+    let tagsStr = '';
+    if (sideTags.length > 0) {
+        tagsStr = Array.from(sideTags).map(t => t.innerText.trim()).join(', ');
+    }
 
     // Client Name
     const clientNameEl = document.querySelector('.profile__name bdi');
-    const clientName = clientNameEl ? clientNameEl.textContent.trim() : 'غير معروف';
+    const clientName = clientNameEl ? clientNameEl.textContent.trim().replace(/\s+/g, ' ') : 'غير معروف';
 
     // Project ID
     const projectId = getProjectId();
@@ -645,10 +665,10 @@ function extractProjectData() {
     const category = categoryEl ? categoryEl.textContent.trim() : 'غير معروف';
 
     // Client Metrics & Info
-    let openProjects = '0';
-    let underwayProjects = '0';
-    let clientJoined = 'غير معروف';
-    let hiringRate = 'غير معروف';
+    openProjects = '0';
+    underwayProjects = '0';
+    clientJoined = 'غير معروف';
+    hiringRate = 'غير معروف';
     let clientType = 'صاحب عمل';
 
     const clientCard = document.querySelector('.profile_card');
@@ -672,11 +692,14 @@ function extractProjectData() {
     }
 
     // Tags
-    const tags = Array.from(document.querySelectorAll('.skills .tag'))
+    const tags = Array.from(document.querySelectorAll('.skills .tag, .tags .tag, .project-tags .tag'))
         .map(tag => tag.textContent.trim())
         .join(', ');
 
-    const title = document.querySelector('.heada__title span[data-type="page-header-title"]')?.textContent.trim() || document.title || 'مشروع غير معنون';
+    const titleEl = document.querySelector('.heada__title span[data-type="page-header-title"]') || 
+                    document.querySelector('.page-title h1') ||
+                    document.querySelector('.project-title');
+    const title = titleEl?.textContent.trim() || document.title || 'مشروع غير معنون';
 
     return {
         id: projectId || '',
@@ -689,13 +712,18 @@ function extractProjectData() {
         budget: budget || 'غير محدد',
         publishDate: publishDate || 'غير معروف',
         clientName: clientName || 'غير معروف',
-        tags: tags || '',
+        tags: tags || tagsStr || '',
         category: category || 'عام',
         hiringRate: hiringRate || 'غير متوفر',
         openProjects: openProjects || '0',
         underwayProjects: underwayProjects || '0',
         clientJoined: clientJoined || 'غير معروف',
-        clientType: clientType || 'صاحب عمل'
+        clientType: clientType || 'صاحب عمل',
+        attachments: Array.from(document.querySelectorAll('#projectDetailsTab #project-files-panel .attachment a[href]'))
+            .map(a => ({
+                url: a.href,
+                name: a.getAttribute('title') || a.innerText.trim()
+            }))
     };
 }
 
@@ -926,7 +954,12 @@ function runInjectors() {
 
     if (page === 'project') {
         injectTrackButton();
+        injectProjectExporter();
         checkForAutofill();
+    }
+
+    if (page === 'message') {
+        injectMessageExporter();
     }
 
     if (page === 'home') {
@@ -1560,6 +1593,980 @@ function injectProfileTools() {
     box.innerHTML = `<button class="btn btn-success">أداة بروفايل</button>`;
     target.appendChild(box);
 }
+
+function injectMessageExporter() {
+    // We want to add the button under the message meta panel
+    const targetPanel = document.querySelector("#message-meta");
+    if (!targetPanel) return;
+
+    if (document.getElementById('mostaql-export-chat-btn')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'mostaql-export-chat-btn';
+    // Visual: Grayed out/muted appearance
+    btn.className = 'btn btn-primary btn-block'; 
+    btn.style.marginTop = '15px';
+    btn.style.marginBottom = '15px';
+    btn.innerHTML = '<i class="fa fa-download"></i> تصدير';
+    btn.title = '';
+    
+    let clickCount = 0;
+    let clickTimer = null;
+
+    btn.addEventListener('click', async () => {
+        clickCount++;
+        clearTimeout(clickTimer);
+
+        if (clickCount >= 2) {
+            clickCount = 0;
+            const originalHtml = btn.innerHTML;
+            const originalStyle = {
+                opacity: btn.style.opacity,
+                bg: btn.style.backgroundColor
+            };
+
+            btn.disabled = true;
+            btn.style.opacity = '1';
+            btn.style.backgroundColor = '#2386c8'; 
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+            
+            try {
+                await executeExportAll();
+            } finally {
+                btn.disabled = false;
+                btn.style.opacity = originalStyle.opacity;
+                btn.style.backgroundColor = originalStyle.bg;
+                btn.innerHTML = originalHtml;
+            }
+        } else {
+            clickTimer = setTimeout(() => {
+                clickCount = 0;
+            }, 600);
+        }
+    });
+
+    targetPanel.after(btn);
+}
+
+function injectProjectExporter() {
+    // We want to add the button in the sidebar container created by injectTrackButton
+    const buttonContainer = document.getElementById('mostaql-ext-btn-container');
+    if (!buttonContainer) return;
+
+    if (document.getElementById('mostaql-export-project-btn')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'mostaql-export-project-btn';
+    // Visual: Grayed out/muted appearance
+    btn.className = 'btn btn-primary'; 
+    btn.style.marginRight = '8px'; // Spacing from Track button
+    btn.innerHTML = '<i class="fa fa-download"></i> <span class="action-text">تصدير</span>';
+    btn.title = '';
+    
+    let clickCount = 0;
+    let clickTimer = null;
+
+    btn.addEventListener('click', async () => {
+        clickCount++;
+        clearTimeout(clickTimer);
+
+        if (clickCount >= 2) {
+            clickCount = 0;
+            const originalHtml = btn.innerHTML;
+            const originalStyle = {
+                opacity: btn.style.opacity,
+                bg: btn.style.backgroundColor
+            };
+
+            btn.disabled = true;
+            btn.style.opacity = '1';
+            btn.style.backgroundColor = '#2386c8'; // Flash primary color during work
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+            
+            try {
+                await executeExportAll();
+            } finally {
+                btn.disabled = false;
+                btn.style.opacity = originalStyle.opacity;
+                btn.style.backgroundColor = originalStyle.bg;
+                btn.innerHTML = originalHtml;
+            }
+        } else {
+            // If they stop clicking, reset after 500ms
+            clickTimer = setTimeout(() => {
+                clickCount = 0;
+            }, 600);
+        }
+    });
+
+    buttonContainer.appendChild(btn);
+}
+
+
+async function executeExportAll() {
+    console.log("Starting export...");
+    
+    // Detect My Name for matching in other pages
+    const myName = document.querySelector('.user-menu__name')?.innerText.trim() || 
+                   document.querySelector('#user-menu bdi')?.innerText.trim() || 
+                   "Omar Abbas"; // Fallback
+                   
+    // Detect Identity based on current conversation
+    const messages = document.querySelectorAll("#chat-root [id^='message-'], .message-item");
+    
+    let chatData = [];
+    let textOutput = "تصدير محادثة مستقل (بالتاريخ)\n\n";
+    let textOutputNoTime = "تصدير محادثة مستقل (بدون تاريخ)\n\n";
+    let mediaUrls = [];
+
+    if (messages.length > 0) {
+        const firstMsgNameEl = messages[0].querySelector('.metas-title');
+        const firstSenderName = firstMsgNameEl ? firstMsgNameEl.innerText.trim() : "Other";
+
+        let lastKnownSender = {
+            name: firstSenderName,
+            isUs: false,
+            avatar: ""
+        };
+        
+        messages.forEach((msg) => {
+            const nameEl = msg.querySelector('.metas-title');
+            const timeEl = msg.querySelector('time');
+            const avatarEl = msg.querySelector('img.uavatar') || msg.querySelector('img:not([class="meta-icon"])'); // fallback for avatar
+
+            let currentName = nameEl ? nameEl.innerText.trim() : null;
+            let currentTime = timeEl ? (timeEl.getAttribute('title') || timeEl.innerText.trim()) : null;
+            let currentAvatar = avatarEl ? avatarEl.src : null;
+
+            let isUs, senderName, displayAvatar;
+
+            if (currentName) {
+                isUs = (currentName !== firstSenderName);
+                senderName = currentName;
+                displayAvatar = currentAvatar;
+
+                lastKnownSender = { name: senderName, isUs: isUs, avatar: displayAvatar };
+            } else {
+                isUs = lastKnownSender.isUs;
+                senderName = lastKnownSender.name;
+                displayAvatar = lastKnownSender.avatar;
+            }
+
+            const textEl = msg.querySelector('.content p, .text-wrapper-div p, p, .text-wrapper-div');
+            const text = textEl ? textEl.innerText.trim() : "";
+
+            const contentImgs = msg.querySelectorAll('.content img, .message-item-container img:not(.icon.loaded img)');
+            let attachments = [];
+            
+            const getFilenameFromUrl = (urlStr) => {
+                try {
+                    const u = new URL(urlStr);
+                    const parts = u.pathname.split('/');
+                    return parts.pop() || 'media_file';
+                } catch {
+                    return 'media_file';
+                }
+            };
+
+            const processLink = (linkNode) => {
+                 const url = linkNode.href;
+                 let filename = linkNode.innerText.trim();
+                 if (!filename || filename === "") {
+                     filename = getFilenameFromUrl(url);
+                 }
+                 if (!attachments.find(a => a.url === url)) {
+                     attachments.push({ url, name: filename });
+                 }
+                 if (!mediaUrls.find(m => m.url === url)) {
+                     mediaUrls.push({ url, name: filename });
+                 }
+            };
+
+            const mediaLinks = msg.querySelectorAll('a[href*="/file/"]');
+            mediaLinks.forEach(processLink);
+            
+            const imageElements = msg.querySelectorAll('.single-image-container a[href]');
+            imageElements.forEach(processLink);
+
+            const audioElements = msg.querySelectorAll('audio');
+            audioElements.forEach(audio => {
+                const url = audio.src;
+                if (url) {
+                    const filename = getFilenameFromUrl(url);
+                    if (!attachments.find(a => a.url === url)) {
+                        attachments.push({ url, name: filename });
+                    }
+                    if (!mediaUrls.find(m => m.url === url)) {
+                        mediaUrls.push({ url, name: filename });
+                    }
+                }
+            });
+
+            const videoElements = msg.querySelectorAll('video');
+            videoElements.forEach(video => {
+                let bestUrl = video.src;
+                if (!bestUrl) {
+                    const sources = Array.from(video.querySelectorAll('source'));
+                    // Prioritize MP4 for better compatibility, then fallback to first available source
+                    const mp4Source = sources.find(s => (s.type && s.type.includes('mp4')) || (s.src && s.src.includes('.mp4')));
+                    const anySource = mp4Source || sources[0];
+                    if (anySource && anySource.src) {
+                        bestUrl = anySource.src;
+                    }
+                }
+                
+                if (bestUrl) {
+                    const filename = getFilenameFromUrl(bestUrl);
+                    if (!attachments.find(a => a.url === bestUrl)) {
+                        attachments.push({ url: bestUrl, name: filename });
+                    }
+                    if (!mediaUrls.find(m => m.url === bestUrl)) {
+                        mediaUrls.push({ url: bestUrl, name: filename });
+                    }
+                }
+            });
+
+            if (text || attachments.length > 0) {
+                chatData.push({
+                    senderName,
+                    isUs,
+                    text,
+                    time: currentTime || "",
+                    avatar: displayAvatar,
+                    attachments
+                });
+                
+                const messageText = text.trim();
+                const attachmentsSection = attachments.length > 0 ? `\n[مرفقات: ${attachments.map(a => a.name).join(', ')}]` : '';
+                textOutput += `[${currentTime || ''}] ${senderName}:\n${messageText}${attachmentsSection}\n\n`;
+                textOutputNoTime += `${senderName}:\n${messageText}${attachmentsSection}\n\n`;
+            }
+        });
+    }
+
+    console.log("Extracted Chat Data:", chatData);
+
+    const projectDetailsResult = await extractProjectDetailsFull();
+    const myProposalResult = extractMyProposalFull(projectDetailsResult?.data);
+    
+    const projectDetailsText = projectDetailsResult?.text || "";
+    const myProposalText = myProposalResult?.text || "";
+    const pData = projectDetailsResult?.data || {};
+    const propData = myProposalResult?.data || {};
+    
+    const projectIdMatch = window.location.pathname.match(/\/(message|project)\/(\d+)/);
+    const discussionId = projectIdMatch ? projectIdMatch[2] : Date.now();
+    
+    // Improved safe title: allow Arabic characters, cleanup multiple underscores, trim length
+    let safeTitle = document.title ? document.title.replace(/[^\u0600-\u06FFa-zA-Z0-9 ]/gi, '_') : 'export';
+    safeTitle = safeTitle.replace(/_+/g, '_').replace(/^_+|_+$/g, '').substring(0, 50);
+    
+    const folderName = `mostaql_export_${discussionId}_${safeTitle}`;
+
+    const html = `
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>تقرير مشروع مستقل - ${discussionId}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+        <style>
+            :root {
+                --primary: #2386c8;
+                --primary-light: #e3f2fd;
+                --text-main: #2c3e50;
+                --text-muted: #7f8c8d;
+                --bg-body: #f8fafc;
+                --bg-card: #ffffff;
+                --border-color: #e2e8f0;
+                --radius: 12px;
+                --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            }
+
+            * { box-sizing: border-box; }
+            body { 
+                font-family: 'Cairo', sans-serif; 
+                background: var(--bg-body); 
+                padding: 40px 20px; 
+                line-height: 1.6; 
+                color: var(--text-main); 
+                margin: 0;
+                font-size: 14px;
+            }
+            
+            .container { 
+                max-width: 950px; 
+                margin: auto; 
+                background: var(--bg-card); 
+                padding: 40px; 
+                border-radius: var(--radius); 
+                box-shadow: var(--shadow); 
+            }
+            
+            header { 
+                text-align: center; 
+                margin-bottom: 50px; 
+                padding-bottom: 25px; 
+                border-bottom: 2px solid var(--primary-light); 
+            }
+            h1 { 
+                margin: 0; 
+                color: var(--primary); 
+                font-size: 28px; 
+                font-weight: 700;
+            }
+            .date-stamp { color: var(--text-muted); font-size: 14px; margin-top: 8px; font-weight: 400; }
+
+            section { 
+                margin-bottom: 20px; 
+            }
+            h2 { 
+                color: var(--text-main); 
+                font-size: 19px; 
+                font-weight: 700;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 12px;
+            }
+            h2::before {
+                content: '';
+                display: none;
+            }
+
+            h3 { font-size: 15px; color: var(--primary); margin: 15px 0 8px; font-weight: 600; }
+            
+            .info-card { 
+                background: #fbfcfd; 
+                border: 1px solid var(--border-color); 
+                border-radius: var(--radius); 
+                padding: 12px 16px;
+                margin-bottom: 12px;
+            }
+
+            .info-grid { 
+                display: grid; 
+                grid-template-columns: repeat(2, 1fr); 
+                gap: 8px 12px; 
+            }
+            .info-grid.col-3 { 
+                grid-template-columns: repeat(3, 1fr); 
+            }
+            .info-item { 
+                display: flex; 
+                flex-direction: column; 
+                padding: 3px 5px;
+                border-bottom: 1px solid #f8fafc;
+            }
+            .info-item.full-width {
+                grid-column: 1 / -1;
+            }
+            .info-label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-bottom: 1px; }
+            .info-value { font-size: 13.5px; color: var(--text-main); font-weight: 700; }
+
+            .content-box { 
+                background: #fff; 
+                border: 1px solid var(--border-color); 
+                padding: 15px; 
+                border-radius: var(--radius); 
+                white-space: pre-wrap; 
+                font-size: 13.5px; 
+                line-height: 1.5;
+                color: #334155;
+            }
+            
+            .tags-cloud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+            .tag-pill { 
+                background: var(--primary-light); 
+                color: var(--primary); 
+                padding: 5px 14px; 
+                border-radius: 50px; 
+                font-size: 13px; 
+                font-weight: 600; 
+                border: 1px solid #bbdefb;
+                transition: all 0.2s;
+            }
+
+            .chat-container { display: flex; flex-direction: column; gap: 20px; margin-top: 30px; }
+            .msg-row { display: flex; width: 100%; align-items: flex-start; }
+            .msg-row.us { flex-direction: row-reverse; }
+            
+            .avatar-col { width: 60px; flex-shrink: 0; padding: 0 10px; text-align: center; }
+            .avatar-col img { 
+                width: 45px; 
+                height: 45px; 
+                border-radius: 50%; 
+                border: 3px solid #fff; 
+                box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            }
+            
+            .bubble { 
+                max-width: 80%; 
+                padding: 12px 18px; 
+                border-radius: 18px; 
+                box-shadow: 0 2px 10px rgba(0,0,0,0.02); 
+                font-size: 13px; 
+            }
+            .msg-row { page-break-inside: avoid; margin-bottom: 15px; }
+            .us .bubble { background: #e3f2fd; color: #1e293b; border-top-right-radius: 4px; }
+            .other .bubble { background: #fff; border: 1px solid var(--border-color); border-top-left-radius: 4px; }
+            
+            .sender-name { font-weight: 700; font-size: 12.5px; display: block; margin-bottom: 8px; color: var(--primary); }
+            .time { font-size: 11px; color: var(--text-muted); display: block; margin-top: 10px; }
+            
+            .attachment-preview { margin-top: 20px; }
+            .attachment-preview img { 
+                max-width: 100%; 
+                max-height: 500px; 
+                border-radius: var(--radius); 
+                border: 1px solid var(--border-color); 
+                object-fit: contain;
+                box-shadow: var(--shadow);
+            }
+            .attach-link { 
+                display: inline-flex; 
+                align-items: center; 
+                gap: 8px;
+                color: var(--primary); 
+                text-decoration: none; 
+                font-size: 12.5px; 
+                margin-top: 12px; 
+                font-weight: 600;
+                padding: 8px 15px;
+                background: var(--primary-light);
+                border-radius: 8px;
+            }
+
+            .container { counter-reset: section; }
+            section h2::before {
+                counter-increment: section;
+                content: counter(section) ". ";
+            }
+
+            .page-break { page-break-before: always; }
+            
+            @media print {
+                body { background: #fff !important; padding: 0 !important; }
+                .container { box-shadow: none !important; border: none !important; width: 100% !important; max-width: none !important; padding: 0 !important; }
+                .no-print { display: none !important; }
+                .info-card, .content-box, .bubble { border: 1px solid #e2e8f0 !important; page-break-inside: auto !important; }
+                h1, h2, h3 { color: #000 !important; page-break-after: avoid !important; }
+                .msg-row { page-break-inside: avoid !important; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>تقرير عمل مشروع مستقل</h1>
+                <div class="date-stamp">${new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            </header>
+
+            <section>
+                <h2>وصف وتفاصيل المشروع</h2>
+                <div class="info-card">
+                    <div class="info-grid">
+                        <div class="info-item full-width"><span class="info-label">اسم المشروع</span><span class="info-value">${pData.title || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">حالة المشروع</span><span class="info-value">${pData.status || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">الميزانية</span><span class="info-value">${pData.budget || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">مدة التنفيذ</span><span class="info-value">${pData.duration || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">صاحب العمل</span><span class="info-value">${pData.clientName || "-"}</span></div>
+                        ${(pData.category && pData.category !== 'غير معروف' && pData.category !== 'Unknown') ? `<div class="info-item"><span class="info-label">القسم</span><span class="info-value">${pData.category}</span></div>` : ''}
+                    </div>
+                </div>
+                
+                <h3>نص الوصف:</h3>
+                <div class="content-box">${pData.description || "لا يوجد وصف"}</div>
+                
+                <div class="tags-cloud">
+                    ${(pData.tagsList || []).map(t => `<span class="tag-pill">${t}</span>`).join('')}
+                </div>
+            </section>
+
+            <section>
+                <h2>معلومات صاحب العمل</h2>
+                <div class="info-card">
+                    <div class="info-grid col-3">
+                        <div class="info-item"><span class="info-label">اسم صاحب المشروع</span><span class="info-value">${pData.clientName || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">تاريخ التسجيل</span><span class="info-value">${pData.clientJoined || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">معدل التوظيف</span><span class="info-value">${pData.hiringRate || "-"}</span></div>
+                        
+                        ${pData.clientTitle ? `<div class="info-item"><span class="info-label">المسمى الوظيفي</span><span class="info-value">${pData.clientTitle}</span></div>` : ''}
+                        <div class="info-item"><span class="info-label">المشاريع المفتوحة</span><span class="info-value">${pData.openProjects || "0"}</span></div>
+                        <div class="info-item"><span class="info-label">مشاريع قيد التنفيذ</span><span class="info-value">${pData.underwayProjects || "0"}</span></div>
+                        <div class="info-item"><span class="info-label">التواصلات الجارية</span><span class="info-value">${pData.ongoingCommunications || "0"}</span></div>
+                    </div>
+                </div>
+            </section>
+
+            ${(propData && ((propData.price && propData.price !== '-') || (propData.duration && propData.duration !== '-'))) ? `
+            <section>
+                <h2>العرض والاتفاق المالي</h2>
+                <div class="info-card">
+                    <div class="info-grid col-3">
+                        <div class="info-item"><span class="info-label">المقدم</span><span class="info-value">${propData.freelancer || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">المبلغ المتفق عليه</span><span class="info-value">${propData.price || "-"}</span></div>
+                        <div class="info-item"><span class="info-label">المدة الزمنية</span><span class="info-value">${propData.duration || "-"}</span></div>
+                    </div>
+                </div>
+                <h3>نص العرض المقدم:</h3>
+                <div class="content-box">${propData.content || "لا يوجد نص"}</div>
+            </section>
+            ` : ''}
+
+            ${(chatData && chatData.length > 0) ? `
+            <div class="page-break"></div>
+            <section>
+                <h2>سجل المناقشات والرسائل</h2>
+                <div class="chat-container">
+                    ${chatData.map(m => `
+                        <div class="msg-row ${m.isUs ? 'us' : 'other'}">
+                            <div class="avatar-col">
+                                ${m.avatar ? `<img src="${m.avatar}">` : '<i class="fa fa-user-circle fa-3x" style="color:#cbd5e1;"></i>'}
+                            </div>
+                            <div class="bubble">
+                                <span class="sender-name">${m.senderName}</span>
+                                <div class="text-content">${m.text.replace(/\n/g, '<br>')}</div>
+                                
+                                ${m.attachments.map(a => {
+                                    const isImg = a.name.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                                    const isAudio = a.name.match(/\.(mp3|wav|ogg|m4a|aac)$/i);
+                                    const isVideo = a.name.match(/\.(mp4|webm|ogg)$/i);
+                                    return `
+                                        <div class="attachment-preview">
+                                            ${isImg ? `<img src="${a.url}" alt="${a.name}" onerror="this.style.display='none'">` : ''}
+                                            ${isAudio ? `<audio controls src="${a.url}" style="width: 100%; margin-top: 10px; border-radius: 8px; background: #f1f5f9;"></audio>` : ''}
+                                            ${isVideo ? `<video controls src="${a.url}" style="width: 100%; margin-top: 10px; border-radius: 8px; background: #000; max-height: 400px;"></video>` : ''}
+                                            <a href="${a.url}" target="_blank" class="attach-link">
+                                                <i class="fa fa-paperclip"></i> ${a.name}
+                                            </a>
+                                        </div>
+                                    `;
+                                }).join('')}
+                                
+                                <span class="time">${m.time}</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </section>
+            ` : ''}
+            
+            <button class="no-print" onclick="window.print()" style="position:fixed; bottom:40px; left:40px; padding: 20px 40px; background: var(--primary); color:#fff; border:none; border-radius: 50px; cursor:pointer; font-family: 'Cairo', sans-serif; font-weight:700; font-size:18px; box-shadow: 0 10px 25px rgba(35, 134, 200, 0.4); display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
+                <i class="fa fa-file-pdf-o"></i> حفظ وحفظ كـ PDF
+            </button>
+        </div>
+    </body>
+    </html>`;
+
+    const filesToZip = [];
+    
+    if (chatData && chatData.length > 0) {
+        filesToZip.push({ name: `chat_log.txt`, content: textOutput });
+        filesToZip.push({ name: `chat_log_simple.txt`, content: textOutputNoTime });
+    }
+    
+    filesToZip.push({ name: `report.html`, content: html });
+
+    if (pData.bids && pData.bids.length > 0) {
+        let bidsTxt = `عروض المستقلين الآخرين لجلسة: ${discussionId}\n`;
+        bidsTxt += `عدد العروض: ${pData.bids.length}\n`;
+        bidsTxt += `==========================================\n\n`;
+        pData.bids.forEach((bid, i) => {
+            bidsTxt += `${i + 1}. ${bid.name} (${bid.title})\n`;
+            bidsTxt += `الرابط: ${bid.link}\n`;
+            bidsTxt += `التوقيت: ${bid.timeText} (${bid.timeOffset || "غير محدد"})\n`;
+            bidsTxt += `نص العرض:\n${bid.content}\n`;
+            bidsTxt += `------------------------------------------\n\n`;
+        });
+        filesToZip.push({ name: `other_bids_details.txt`, content: bidsTxt });
+    }
+
+    if (projectDetailsText) {
+        filesToZip.push({ name: `project_details.txt`, content: projectDetailsText });
+    }
+
+    if (myProposalText) {
+        filesToZip.push({ name: `my_proposal.txt`, content: myProposalText });
+    }
+
+    const sanitizeFile = (name, fallback) => {
+        if (!name) return fallback;
+        // Allow Arabic characters (0600-06FF), alphanumeric, dots, hyphens, underscores and spaces
+        return name.replace(/[^\u0600-\u06FFa-zA-Z0-9.\-_ ]/g, '_').trim();
+    };
+
+    // 1. Chat attachments
+    mediaUrls.forEach((media, index) => {
+        let fileName = sanitizeFile(media.name, `chat_file_${index}`);
+        filesToZip.push({ name: `chat_attachments/${fileName}`, url: media.url });
+    });
+
+    // 2. Client attachments (From project description)
+    if (pData.attachments && pData.attachments.length > 0) {
+        pData.attachments.forEach((file, index) => {
+            let fileName = sanitizeFile(file.name, `client_file_${index}`);
+            filesToZip.push({ name: `client_attachments/${fileName}`, url: file.url });
+        });
+    }
+
+    // 3. Bid attachments (From our proposal)
+    if (propData.attachments && propData.attachments.length > 0) {
+        propData.attachments.forEach((file, index) => {
+            let fileName = sanitizeFile(file.name, `bid_file_${index}`);
+            filesToZip.push({ name: `bid_attachments/${fileName}`, url: file.url });
+        });
+    }
+
+    if (chrome.runtime && chrome.runtime.id) {
+        return new Promise((resolve) => {
+            chrome.runtime.sendMessage({
+                action: 'download_zip',
+                filename: `${folderName}.zip`,
+                files: filesToZip
+            }, (response) => {
+                const blob = new Blob([html], {type: 'text/html'});
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+                resolve();
+            });
+        });
+    } else {
+        alert("انتهت صلاحية جلسة الإضافة بسبب تحديثها. يرجى تحديث الصفحة (Refresh) والمحاولة مرة أخرى.");
+        throw new Error("Context invalidated");
+    }
+}
+
+
+async function extractProjectDetailsFull() {
+    try {
+        let data = extractProjectData();
+        let description = "";
+
+        const projectLinkSelectors = [
+            "body > div.wrapper.hsoub-container > div > div.page-body > div > div.page-title > div:nth-child(2) > div > div > div > div > a", // User provided
+            "a[href*='/project/']", // Generic fallback
+            ".page-title a[href*='/project/']"
+        ];
+        
+        let projectLinkEl = null;
+        for (const sel of projectLinkSelectors) {
+            projectLinkEl = document.querySelector(sel);
+            if (projectLinkEl && projectLinkEl.href && projectLinkEl.href.includes('/project/')) break;
+        }
+        
+        if (projectLinkEl && projectLinkEl.href) {
+            const externalData = await fetchDeepProjectData(projectLinkEl.href);
+            if (externalData) {
+                // If we are on message page, local data is mostly 'Unknown', so merge carefully
+                description = externalData.description;
+                data = { ...data, ...externalData };
+            }
+        }
+
+        if (!description) {
+            const descriptionSelectors = ["#project-brief .text-wrapper-div", ".project-description .text-wrapper-div", "#project-brief"];
+            for (const selector of descriptionSelectors) {
+                const el = document.querySelector(selector);
+                if (el) {
+                    const text = el.innerText.trim();
+                    if (text.length > 50 && !text.includes("عرض المشروع")) {
+                        description = text;
+                        break;
+                    }
+                }
+            }
+        }
+
+        const allTags = new Set();
+        if (data.tags) {
+            data.tags.split(',').forEach(t => {
+                const cleaned = t.trim();
+                if (cleaned && cleaned !== 'null') allTags.add(cleaned);
+            });
+        }
+        data.tagsList = Array.from(allTags);
+        data.description = description || "تعذر العثور على وصف تفصيلي.";
+
+        // Special: If we are on the project page, extract bids from the page itself if not fetched externally
+        if (!data.bids) {
+            data.bids = [];
+            const bidElements = document.querySelectorAll('#project-bids .bid');
+            if (bidElements.length > 0) {
+                bidElements.forEach(bid => {
+                    const bidderNameEl = bid.querySelector('.profile__name bdi');
+                    const bidderLinkEl = bid.querySelector('.profile__name a');
+                    const bidderTitleEl = bid.querySelector('.bid__meta .title');
+                    const bidTimeEl = bid.querySelector('.bid__meta .time time');
+                    const bidContentEl = bid.querySelector('.bid__details .text-wrapper-div');
+                    const bidTime = bidTimeEl ? bidTimeEl.getAttribute('datetime') : null;
+                    data.bids.push({
+                        name: bidderNameEl ? bidderNameEl.innerText.trim() : "مجهول",
+                        link: bidderLinkEl ? bidderLinkEl.href : "#",
+                        title: bidderTitleEl ? bidderTitleEl.innerText.trim() : "",
+                        timeRaw: bidTime,
+                        timeText: bidTimeEl ? bidTimeEl.innerText.trim() : "",
+                        timeOffset: null, // Hard to calc without publish date ref on current page easily
+                        content: bidContentEl ? bidContentEl.innerText.trim() : ""
+                    });
+                });
+            }
+        }
+
+        let output = `تفاصيل المشروع:\n`;
+        output += `العنوان: ${data.title}\n`;
+        output += `الحالة: ${data.status}\n`;
+        output += `الميزانية: ${data.budget}\n`;
+        output += `مدة التنفيذ: ${data.duration}\n`;
+        if (data.category && data.category !== 'غير معروف' && data.category !== 'Unknown') {
+            output += `القسم: ${data.category}\n`;
+        }
+        output += `الوسوم: ${data.tagsList.join(', ')}\n\n`;
+        
+        output += `معلومات صاحب العمل:\n`;
+        output += `الاسم: ${data.clientName}\n`;
+        if (data.clientTitle) {
+            output += `الدور/التخصص: ${data.clientTitle}\n`;
+        }
+        output += `معدل التوظيف: ${data.hiringRate || "غير معروف"}\n`;
+        output += `تاريخ التسجيل: ${data.clientJoined || "غير معروف"}\n`;
+        output += `المشاريع المفتوحة: ${data.openProjects || "0"}\n`;
+        output += `مشاريع قيد التنفيذ: ${data.underwayProjects || "0"}\n`;
+        output += `التواصلات الجارية: ${data.ongoingCommunications || "0"}\n\n`;
+        
+        output += `وصف المشروع:\n${data.description}\n\n`;
+
+        return { text: output, data: data };
+    } catch (e) {
+        console.error("Error extracting project details:", e);
+        return null;
+    }
+}
+
+async function fetchDeepProjectData(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, "text/html");
+        
+        const res = {};
+        
+        // 1. Tags
+        const tags = Array.from(doc.querySelectorAll('.tag, .skills__item bdi'));
+        if (tags.length > 0) {
+            res.tags = Array.from(new Set(tags.map(t => t.innerText.trim()))).join(', ');
+        }
+
+        // Helper for specific meta-row structure
+        const getMetaValue = (label) => {
+            const rows = doc.querySelectorAll('.meta-row');
+            for (const row of rows) {
+                if (row.querySelector('.meta-label')?.innerText.includes(label)) {
+                    return row.querySelector('.meta-value')?.innerText.trim().replace(/\s+/g, ' ');
+                }
+            }
+            // Fallback for tables
+            const trs = doc.querySelectorAll('tr');
+            for (const tr of trs) {
+                if (tr.innerText.includes(label)) {
+                    return tr.querySelector('td:last-child')?.innerText.trim().replace(/\s+/g, ' ');
+                }
+            }
+            return null;
+        };
+
+        res.title = doc.querySelector('.heada__title span[data-type="page-header-title"]')?.innerText.trim() || 
+                    doc.querySelector('.page-title h1')?.innerText.trim() || 
+                    doc.title.split('-')[0].trim();
+                    
+        res.category = doc.querySelector('.breadcrumb li:nth-last-child(2) a')?.innerText.trim() || 
+                       doc.querySelector('.project-header__meta a')?.innerText.trim();
+
+        res.status = getMetaValue('حالة المشروع') || doc.querySelector('.project-header .label')?.innerText.trim().replace(/\s+/g, ' ');
+        res.budget = getMetaValue('الميزانية');
+        res.duration = getMetaValue('مدة التنفيذ');
+        res.publishDate = getMetaValue('تاريخ النشر') || doc.querySelector('time[itemprop="datePublished"]')?.innerText.trim().replace(/\s+/g, ' ');
+        const publishTimeEl = doc.querySelector('time[itemprop="datePublished"]');
+        res.publishDatetime = publishTimeEl ? publishTimeEl.getAttribute('datetime') : null;
+        
+        // Client data
+        const clientCard = doc.querySelector('.profile_card');
+        if (clientCard) {
+            const getClientVal = (label) => {
+                const trs = clientCard.querySelectorAll('tr');
+                for (const tr of trs) {
+                    if (tr.innerText.includes(label)) {
+                        return tr.querySelector('td:last-child')?.innerText.trim().replace(/\s+/g, ' ');
+                    }
+                }
+                return null;
+            };
+            res.clientName = clientCard.querySelector('.profile__name')?.innerText.trim() || 
+                             clientCard.querySelector('h3, h4')?.innerText.trim();
+                             
+            res.hiringRate = getClientVal('معدل التوظيف');
+            res.clientJoined = getClientVal('تاريخ التسجيل');
+            res.openProjects = getClientVal('المشاريع المفتوحة');
+            res.underwayProjects = getClientVal('مشاريع قيد التنفيذ');
+            res.ongoingCommunications = getClientVal('التواصلات الجارية');
+            
+            // Client specialization/title
+            const specEl = clientCard.querySelector('.meta_items li');
+            if (specEl) {
+                res.clientTitle = specEl.innerText.trim();
+            }
+        }
+
+        const briefSelectors = ["#project-brief .text-wrapper-div", ".project-description .text-wrapper-div", "#project-brief", ".pdn--am .text-wrapper-div"];
+        let briefElFinal = null;
+        for (const s of briefSelectors) {
+            briefElFinal = doc.querySelector(s);
+            if (briefElFinal) break;
+        }
+        res.description = briefElFinal ? briefElFinal.innerText.trim() : "";
+
+        // 3. Attachments (Only from project details section)
+        res.attachments = Array.from(doc.querySelectorAll('#projectDetailsTab #project-files-panel .attachment a[href]'))
+            .map(a => ({
+                url: a.href,
+                name: a.getAttribute('title') || a.innerText.trim()
+            }));
+
+        // 4. Bids Extraction
+        res.bids = [];
+        const bidElements = doc.querySelectorAll('#project-bids .bid');
+        
+        const formatDiff = (start, end) => {
+            if (!start || !end) return null;
+            const d1 = new Date(start.replace(' ', 'T'));
+            const d2 = new Date(end.replace(' ', 'T'));
+            const diffMs = d2 - d1;
+            if (diffMs < 0) return "مباشرة";
+            
+            const diffMins = Math.floor(diffMs / 60000);
+            if (diffMins < 60) return `بعد ${diffMins} دقيقة`;
+            const diffHours = Math.floor(diffMins / 60);
+            if (diffHours < 24) return `بعد ${diffHours} ساعة`;
+            const diffDays = Math.floor(diffHours / 24);
+            return `بعد ${diffDays} يوم`;
+        };
+
+        bidElements.forEach(bid => {
+            const bidderNameEl = bid.querySelector('.profile__name bdi');
+            const bidderLinkEl = bid.querySelector('.profile__name a');
+            const bidderTitleEl = bid.querySelector('.bid__meta .title');
+            const bidTimeEl = bid.querySelector('.bid__meta .time time');
+            const bidContentEl = bid.querySelector('.bid__details .text-wrapper-div');
+            
+            const bidTime = bidTimeEl ? bidTimeEl.getAttribute('datetime') : null;
+            
+            res.bids.push({
+                name: bidderNameEl ? bidderNameEl.innerText.trim() : "مجهول",
+                link: bidderLinkEl ? bidderLinkEl.href : "#",
+                title: bidderTitleEl ? bidderTitleEl.innerText.trim() : "",
+                timeRaw: bidTime,
+                timeText: bidTimeEl ? bidTimeEl.innerText.trim() : "",
+                timeOffset: formatDiff(res.publishDatetime, bidTime),
+                content: bidContentEl ? bidContentEl.innerText.trim() : ""
+            });
+        });
+
+        return res;
+    } catch (err) {
+        console.error("Deep fetch failed:", err);
+        return null;
+    }
+}
+
+function extractMyProposalFull(externalProjectData = null) {
+    try {
+        const myName = document.querySelector('.user-menu__name')?.innerText.trim() || 
+                       document.querySelector('#user-menu bdi')?.innerText.trim() || 
+                       "Omar Abbas";
+
+        // If we have external data (from deep fetch on message page), try to find our bid there
+        if (externalProjectData && externalProjectData.bids) {
+            const myBid = externalProjectData.bids.find(b => b.name && b.name.includes(myName));
+            if (myBid) {
+                const data = {
+                    freelancer: myBid.name,
+                    price: externalProjectData.budget || "-", // Use project budget as fallback if price not explicitly in bid object
+                    duration: externalProjectData.duration || "-",
+                    content: myBid.content || "نص العرض غير متوفر",
+                    attachments: [] // We don't deep fetch attachments for all bids yet
+                };
+                let output = `عرضي الخاص (تم العثور عليه من صفحة المشروع):\nالمتقدم: ${data.freelancer}\nنص العرض:\n${data.content}\n`;
+                return { text: output, data: data };
+            }
+        }
+
+        const bidTab = document.querySelector('#bidTab');
+        const targetProposal = bidTab?.querySelector('.bid') || 
+                               document.querySelector('.proposal-item') || 
+                               document.querySelector('.card-proposal') ||
+                               document.querySelector('.bid');
+
+        if (!targetProposal) return null;
+
+        const nameNode = targetProposal.querySelector('.profile__name')?.cloneNode(true);
+        if (nameNode) {
+            const extra = nameNode.querySelector('.dropdown, .btn, .dropdown-toggle-default-sm');
+            if (extra) extra.remove();
+        }
+        const name = nameNode ? nameNode.innerText.trim() : "Omar Abbas";
+
+        let price = "";
+        let duration = "";
+        
+        const metaCols = targetProposal.querySelectorAll('.vertical-meta-column');
+        metaCols.forEach(col => {
+            const title = col.querySelector('.meta-title')?.innerText.trim();
+            const contentEl = col.querySelector('.meta-content')?.cloneNode(true);
+            if (contentEl) {
+                const hidden = contentEl.querySelectorAll('.hide, style, script, input');
+                hidden.forEach(h => h.remove());
+            }
+            const content = contentEl ? contentEl.innerText.trim().replace(/\s+/g, ' ') : "";
+            
+            if (title && content) {
+                if (title.includes('المبلغ')) price = content;
+                else if (title.includes('التنفيذ')) duration = content;
+            }
+        });
+
+        const contentEl = targetProposal.querySelector('.bid__details .text-wrapper-div') || 
+                          targetProposal.querySelector('.text-wrapper-div');
+        
+        let content = contentEl ? contentEl.innerText.trim().replace(/\s+/g, ' ') : "";
+        content = content.replace("... عرض المزيد", "").replace("عرض أقل", "").trim();
+
+        const data = {
+            freelancer: name,
+            price: price,
+            duration: duration,
+            content: content || "نص العرض غير متوفر",
+            attachments: Array.from(targetProposal.querySelectorAll('#bid-attachments .attachment a[href]'))
+                .map(a => ({
+                    url: a.href,
+                    name: a.getAttribute('title') || a.innerText.trim()
+                }))
+        };
+
+        let output = `عرضي الخاص:\nالمتقدم: ${name}\nالمبلغ: ${price}\nمدة التنفيذ: ${duration}\n\nنص العرض:\n${data.content}\n`;
+
+        return { text: output, data: data };
+    } catch (e) {
+        console.error("Error extracting my proposal:", e);
+        return null;
+    }
+}
+
+
+
 
 
 

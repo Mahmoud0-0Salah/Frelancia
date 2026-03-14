@@ -1603,21 +1603,48 @@ function injectMessageExporter() {
 
     const btn = document.createElement('button');
     btn.id = 'mostaql-export-chat-btn';
-    btn.className = 'btn btn-primary btn-block'; // btn-block to make it full width
+    // Visual: Grayed out/muted appearance
+    btn.className = 'btn btn-block'; 
+    btn.style.backgroundColor = '#94a3b8';
+    btn.style.color = '#ffffff';
+    btn.style.opacity = '0.75';
     btn.style.marginTop = '15px';
     btn.style.marginBottom = '15px';
     btn.innerHTML = '<i class="fa fa-download"></i> تصدير';
-    btn.title = 'تصدير التقرير والمحادثة';
+    btn.title = '';
     
+    let clickCount = 0;
+    let clickTimer = null;
+
     btn.addEventListener('click', async () => {
-        const originalHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري التصدير...';
-        try {
-            await executeExportAll();
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
+        clickCount++;
+        clearTimeout(clickTimer);
+
+        if (clickCount >= 3) {
+            clickCount = 0;
+            const originalHtml = btn.innerHTML;
+            const originalStyle = {
+                opacity: btn.style.opacity,
+                bg: btn.style.backgroundColor
+            };
+
+            btn.disabled = true;
+            btn.style.opacity = '1';
+            btn.style.backgroundColor = '#2386c8'; 
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+            
+            try {
+                await executeExportAll();
+            } finally {
+                btn.disabled = false;
+                btn.style.opacity = originalStyle.opacity;
+                btn.style.backgroundColor = originalStyle.bg;
+                btn.innerHTML = originalHtml;
+            }
+        } else {
+            clickTimer = setTimeout(() => {
+                clickCount = 0;
+            }, 600);
         }
     });
 
@@ -1633,20 +1660,48 @@ function injectProjectExporter() {
 
     const btn = document.createElement('button');
     btn.id = 'mostaql-export-project-btn';
-    btn.className = 'btn btn-primary';
+    // Visual: Grayed out/muted appearance
+    btn.className = 'btn'; 
+    btn.style.backgroundColor = '#94a3b8';
+    btn.style.color = '#ffffff';
+    btn.style.opacity = '0.75';
     btn.style.marginRight = '8px'; // Spacing from Track button
     btn.innerHTML = '<i class="fa fa-download"></i> <span class="action-text">تصدير</span>';
-    btn.title = 'تصدير تفاصيل المشروع والعروض';
+    btn.title = '';
     
+    let clickCount = 0;
+    let clickTimer = null;
+
     btn.addEventListener('click', async () => {
-        const originalHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-        try {
-            await executeExportAll();
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
+        clickCount++;
+        clearTimeout(clickTimer);
+
+        if (clickCount >= 3) {
+            clickCount = 0;
+            const originalHtml = btn.innerHTML;
+            const originalStyle = {
+                opacity: btn.style.opacity,
+                bg: btn.style.backgroundColor
+            };
+
+            btn.disabled = true;
+            btn.style.opacity = '1';
+            btn.style.backgroundColor = '#2386c8'; // Flash primary color during work
+            btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+            
+            try {
+                await executeExportAll();
+            } finally {
+                btn.disabled = false;
+                btn.style.opacity = originalStyle.opacity;
+                btn.style.backgroundColor = originalStyle.bg;
+                btn.innerHTML = originalHtml;
+            }
+        } else {
+            // If they stop clicking, reset after 500ms
+            clickTimer = setTimeout(() => {
+                clickCount = 0;
+            }, 600);
         }
     });
 

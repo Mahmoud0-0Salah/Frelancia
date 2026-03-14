@@ -34,6 +34,10 @@ function getPageType() {
 }
 
 
+function isProjectOpen() {
+    return !!document.querySelector('.label-prj-open');
+}
+
 function handleAutofillSequence() {
     if (!isContextValid()) return;
 
@@ -202,6 +206,15 @@ function injectTrackButton() {
         buttonContainer.id = 'mostaql-ext-btn-container';
         buttonContainer.className = 'mostaql-ext-sidebar-container';
         metaCardBody.appendChild(buttonContainer);
+    }
+
+    // Only show monitoring/apply buttons if project is open (not started/completed)
+    if (!isProjectOpen()) {
+        ['track-project-btn', 'header-quick-bid-btn', 'chatgpt-group'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        });
+        return;
     }
 
     // START CHECKPOINT: Clear any old/legacy elements (like the separate select box) 

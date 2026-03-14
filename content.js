@@ -601,7 +601,7 @@ function getProjectId() {
 function extractProjectData() {
     // Extract Status
     const statusLabel = document.querySelector('.label-prj-open, .label-prj-closed, .label-prj-completed, .label-prj-cancelled, .label-prj-underway, .label-prj-processing');
-    const status = statusLabel ? statusLabel.textContent.trim() : 'غير معروف';
+    const status = statusLabel ? statusLabel.textContent.trim().replace(/\s+/g, ' ') : 'غير معروف';
 
     // Extract Meta Data (Communications, Duration, Budget, Publish Date)
     let communications = '0';
@@ -611,8 +611,8 @@ function extractProjectData() {
 
     const metaRows = document.querySelectorAll('.meta-row, .table-meta tr, .card .table tr, li.meta-item');
     metaRows.forEach(row => {
-        const label = row.querySelector('.meta-label, td:first-child, .meta-item-label')?.textContent.trim() || row.innerText.split(/[:\n]/)[0]?.trim();
-        const value = row.querySelector('.meta-value, td:last-child, .meta-item-value')?.textContent.trim() || row.innerText.split(/[:\n]/).pop()?.trim();
+        const label = row.querySelector('.meta-label, td:first-child, .meta-item-label')?.textContent.trim().replace(/\s+/g, ' ') || row.innerText.split(/[:\n]/)[0]?.trim().replace(/\s+/g, ' ');
+        const value = row.querySelector('.meta-value, td:last-child, .meta-item-value')?.textContent.trim().replace(/\s+/g, ' ') || row.innerText.split(/[:\n]/).pop()?.trim().replace(/\s+/g, ' ');
 
         if (label && value) {
             const l = label.toLowerCase();
@@ -638,10 +638,10 @@ function extractProjectData() {
 
     // Fallback/Specific selectors
     const budgetEl = document.querySelector('[data-type="project-budget_range"], #project-meta-panel .meta-value[data-type="project-budget_range"]');
-    if (budgetEl) budget = budgetEl.textContent.trim();
+    if (budgetEl) budget = budgetEl.textContent.trim().replace(/\s+/g, ' ');
 
     const timeEl = document.querySelector('time[itemprop="datePublished"], #project-meta-panel time');
-    if (timeEl) publishDate = timeEl.textContent.trim();
+    if (timeEl) publishDate = timeEl.textContent.trim().replace(/\s+/g, ' ');
 
     // Specific check for sidebar tags
     const sideTags = document.querySelectorAll('#project-meta-panel .tag');
@@ -652,7 +652,7 @@ function extractProjectData() {
 
     // Client Name
     const clientNameEl = document.querySelector('.profile__name bdi');
-    const clientName = clientNameEl ? clientNameEl.textContent.trim() : 'غير معروف';
+    const clientName = clientNameEl ? clientNameEl.textContent.trim().replace(/\s+/g, ' ') : 'غير معروف';
 
     // Project ID
     const projectId = getProjectId();
@@ -1749,11 +1749,9 @@ async function executeChatExport() {
                 attachments
             });
             
-            textOutput += `[${currentTime || ''}] ${senderName}:\n${text}\n`;
-            if (attachments.length > 0) {
-                textOutput += `مرفقات:\n${attachments.map(a => a.name).join('\n')}\n`;
-            }
-            textOutput += "\n---------------------------\n\n";
+            const messageText = text.trim();
+            const attachmentsSection = attachments.length > 0 ? `\n[مرفقات: ${attachments.map(a => a.name).join(', ')}]` : '';
+            textOutput += `[${currentTime || ''}] ${senderName}:\n${messageText}${attachmentsSection}\n\n`;
         }
     });
 
@@ -2173,23 +2171,23 @@ async function fetchDeepProjectData(url) {
             const rows = doc.querySelectorAll('.meta-row');
             for (const row of rows) {
                 if (row.querySelector('.meta-label')?.innerText.includes(label)) {
-                    return row.querySelector('.meta-value')?.innerText.trim();
+                    return row.querySelector('.meta-value')?.innerText.trim().replace(/\s+/g, ' ');
                 }
             }
             // Fallback for tables
             const trs = doc.querySelectorAll('tr');
             for (const tr of trs) {
                 if (tr.innerText.includes(label)) {
-                    return tr.querySelector('td:last-child')?.innerText.trim();
+                    return tr.querySelector('td:last-child')?.innerText.trim().replace(/\s+/g, ' ');
                 }
             }
             return null;
         };
 
-        res.status = getMetaValue('حالة المشروع') || doc.querySelector('.project-header .label')?.innerText.trim();
+        res.status = getMetaValue('حالة المشروع') || doc.querySelector('.project-header .label')?.innerText.trim().replace(/\s+/g, ' ');
         res.budget = getMetaValue('الميزانية');
         res.duration = getMetaValue('مدة التنفيذ');
-        res.publishDate = getMetaValue('تاريخ النشر') || doc.querySelector('time[itemprop="datePublished"]')?.innerText.trim();
+        res.publishDate = getMetaValue('تاريخ النشر') || doc.querySelector('time[itemprop="datePublished"]')?.innerText.trim().replace(/\s+/g, ' ');
         
         // Client data
         const clientCard = doc.querySelector('.profile_card');
@@ -2198,7 +2196,7 @@ async function fetchDeepProjectData(url) {
                 const trs = clientCard.querySelectorAll('tr');
                 for (const tr of trs) {
                     if (tr.innerText.includes(label)) {
-                        return tr.querySelector('td:last-child')?.innerText.trim();
+                        return tr.querySelector('td:last-child')?.innerText.trim().replace(/\s+/g, ' ');
                     }
                 }
                 return null;
@@ -2249,7 +2247,7 @@ function extractMyProposalFull() {
                 const hidden = contentEl.querySelectorAll('.hide, style, script, input');
                 hidden.forEach(h => h.remove());
             }
-            const content = contentEl ? contentEl.innerText.trim() : "";
+            const content = contentEl ? contentEl.innerText.trim().replace(/\s+/g, ' ') : "";
             
             if (title && content) {
                 if (title.includes('المبلغ')) price = content;
@@ -2260,7 +2258,7 @@ function extractMyProposalFull() {
         const contentEl = targetProposal.querySelector('.bid__details .text-wrapper-div') || 
                           targetProposal.querySelector('.text-wrapper-div');
         
-        let content = contentEl ? contentEl.innerText.trim() : "";
+        let content = contentEl ? contentEl.innerText.trim().replace(/\s+/g, ' ') : "";
         content = content.replace("... عرض المزيد", "").replace("عرض أقل", "").trim();
 
         const data = {
